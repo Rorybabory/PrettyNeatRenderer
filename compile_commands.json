@@ -1,0 +1,44 @@
+[
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/c++ -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/main.cpp.o -c /home/rory-lambert/repos/Vulkan/src/main.cpp",
+  "file": "/home/rory-lambert/repos/Vulkan/src/main.cpp",
+  "output": "CMakeFiles/Renderer.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/c++ -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/vulkan_renderer.cpp.o -c /home/rory-lambert/repos/Vulkan/src/vulkan_renderer.cpp",
+  "file": "/home/rory-lambert/repos/Vulkan/src/vulkan_renderer.cpp",
+  "output": "CMakeFiles/Renderer.dir/src/vulkan_renderer.cpp.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/c++ -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/vma_impl.cpp.o -c /home/rory-lambert/repos/Vulkan/src/vma_impl.cpp",
+  "file": "/home/rory-lambert/repos/Vulkan/src/vma_impl.cpp",
+  "output": "CMakeFiles/Renderer.dir/src/vma_impl.cpp.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/c++ -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/asset_loader.cpp.o -c /home/rory-lambert/repos/Vulkan/src/asset_loader.cpp",
+  "file": "/home/rory-lambert/repos/Vulkan/src/asset_loader.cpp",
+  "output": "CMakeFiles/Renderer.dir/src/asset_loader.cpp.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/cc -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/vkutils.c.o -c /home/rory-lambert/repos/Vulkan/src/vkutils.c",
+  "file": "/home/rory-lambert/repos/Vulkan/src/vkutils.c",
+  "output": "CMakeFiles/Renderer.dir/src/vkutils.c.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/cc -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/volk.c.o -c /home/rory-lambert/repos/Vulkan/src/volk.c",
+  "file": "/home/rory-lambert/repos/Vulkan/src/volk.c",
+  "output": "CMakeFiles/Renderer.dir/src/volk.c.o"
+},
+{
+  "directory": "/home/rory-lambert/repos/Vulkan",
+  "command": "/usr/bin/cc -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1 -DVMA_STATIC_VULKAN_FUNCTIONS=0 -I/home/rory-lambert/repos/Vulkan/include -g -o CMakeFiles/Renderer.dir/src/spirv_reflect.c.o -c /home/rory-lambert/repos/Vulkan/src/spirv_reflect.c",
+  "file": "/home/rory-lambert/repos/Vulkan/src/spirv_reflect.c",
+  "output": "CMakeFiles/Renderer.dir/src/spirv_reflect.c.o"
+}
+]
