@@ -5,7 +5,9 @@
 #include "glm/ext/matrix_transform.hpp"
 #include <GLFW/glfw3.h>
 
-Mesh mTestMesh;
+Mesh mMonkeyMesh;
+Mesh mCubeMesh;
+Mesh mPlaneMesh;
 Texture mTestTexture;
 Pipeline mPipeline;
 
@@ -18,7 +20,13 @@ int main() {
     {
         .filename = "textures/brick.ktx2"
     };
-    LoadMesh(&meshLoadInfo, mTestMesh);
+    LoadMesh(&meshLoadInfo, mMonkeyMesh);
+    meshLoadInfo.filename = "meshes/cube.obj";
+    LoadMesh(&meshLoadInfo, mCubeMesh);
+    meshLoadInfo.filename = "meshes/plane.obj";
+    LoadMesh(&meshLoadInfo, mPlaneMesh);
+
+    
     LoadTexture(&texLoadInfo, mTestTexture);
     
     GfxCreateBindlessTextureDesc();
@@ -32,7 +40,7 @@ int main() {
     LoadPipeline(&pipelineInfo, mPipeline);
 
     GfxSetPipeline(&mPipeline);
-    GfxSetMesh(&mTestMesh);
+    GfxSetMesh(&mMonkeyMesh);
 
     float dt = 0.0f;
     float lastTime = 0.0f;

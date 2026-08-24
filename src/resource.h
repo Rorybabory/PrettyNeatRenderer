@@ -21,6 +21,7 @@ struct Mesh
 struct Texture 
 {
     VkImage image;
+    VkImageView imageView;
     VmaAllocation allocation;
     VkSampler sampler;
     VkImageLayout imageLayout;

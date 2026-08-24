@@ -1,3 +1,4 @@
+
 #include "volk.h"
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
@@ -68,11 +69,9 @@ VkSemaphore imageAcquiredSemaphores[FRAMES_IN_FLIGHT];
 VkSemaphore * renderCompleteSemaphores;
 VkFence fences[FRAMES_IN_FLIGHT];
 
-VkDescriptorSetLayout descriptorSetLayoutTex;
-VkDescriptorSet descriptorSetTex;
-VkDescriptorPool descriptorPool;
 
 Pipeline * pipeline = NULL;
+Pipeline * pipelineLayout = NULL;
 Mesh * mesh = NULL;
 
 uint32_t frameIndex = 0;
@@ -88,10 +87,15 @@ struct ShaderDataBuffer
 
 struct PushConstants
 {
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     uint32_t frameIndex;
     uint32_t unused[3];
+    #else
+    
+    #endif
 };
 
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 struct DescriptorHeapData
 {
     /*
@@ -122,10 +126,18 @@ struct DescriptorHeapData
     VkDeviceAddress samplerHeapDeviceAddress;
 };
 
-ShaderDataBuffer shaderDataBuffers[FRAMES_IN_FLIGHT];
-
 //Descriptors
 DescriptorHeapData heapData;
+#else
+
+VkDescriptorSetLayout descriptorSetLayoutTex;
+VkDescriptorSet descriptorSetTex;
+VkDescriptorPool descriptorPool;
+
+#endif
+
+ShaderDataBuffer shaderDataBuffers[FRAMES_IN_FLIGHT];
+
 
 //Properties and Limits
 VkPhysicalDeviceDescriptorHeapPropertiesEXT heapProperties;
@@ -632,7 +644,7 @@ VkDeviceSize addDescriptorToHeap(VkDeviceSize & cursor, VkDeviceSize size, VkDev
     cursor += size;
     return offset;
 }
-
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxCreateDescriptorHeap()
 {
     // Descriptor Heap Layout
@@ -841,8 +853,7 @@ void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT ** bindingMapping
     (*bindingMappings) = heapData.bindingMappings;
     (*bindingCount) = 2;
 }
-
-void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
+void GfxUpdateTextureHeapDescriptors(Texture * textures, uint32_t count, uint32_t offset)
 {
     VkImageViewCreateInfo texImgViewInfos[MAX_TEXTURES];
     VkImageDescriptorInfoEXT imageInfos[MAX_TEXTURES];
@@ -879,6 +890,33 @@ void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
     }
     vkWriteResourceDescriptorsEXT(device, count, resourceDescriptorInfos, hostAddrRanges);
 }
+#endif
+
+void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
+{
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+    GfxUpdateTextureHeapDescriptors(textures, count, offset);
+    return;
+    #endif
+    VkDescriptorImageInfo textureDescriptors[MAX_TEXTURES];
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        textureDescriptors[i].sampler = textures[i].sampler;
+        textureDescriptors[i].imageLayout = textures[i].imageLayout;
+        textureDescriptors[i].imageView = textures[i].imageView;
+    }
+    VkWriteDescriptorSet writeDescSet = 
+    {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = descriptorSetTex,
+        .dstBinding = 0,
+        .dstArrayElement = offset,
+        .descriptorCount = count,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
+        .pImageInfo = textureDescriptors
+    };
+    vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+}
 
 void GfxSetShaderData(ShaderData & shaderData)
 {
@@ -902,7 +940,9 @@ void GfxInit()
     AssetLoaderInit();
     GfxCreateShaderData();
     GfxCreateDescriptorPool();
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS 
     GfxCreateDescriptorHeap();
+    #endif
 }
 
 int GfxUpdate()
@@ -933,11 +973,9 @@ void GfxSetViewportAndScissors(VkCommandBuffer & cmd, uint32_t width, uint32_t h
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 }
-
-void GfxRenderScene(VkCommandBuffer & cmd)
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+void GfxBindDescriptorHeaps()
 {
-    GfxSetViewportAndScissors(cmd, windowWidth, windowHeight);
-
     VkBindHeapInfoEXT bindHeapInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
@@ -971,6 +1009,20 @@ void GfxRenderScene(VkCommandBuffer & cmd)
     };
 
     vkCmdPushDataEXT(cmd, &pushDataInfo);
+}
+#endif
+
+void GfxRenderScene(VkCommandBuffer & cmd)
+{
+    GfxSetViewportAndScissors(cmd, windowWidth, windowHeight);
+
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+    GfxBindDescriptorHeaps();
+    #else
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 0, 1, &descriptorSetTex, 0, nullptr);
+    vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
+    #endif
+    
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
     VkDeviceSize vOffset{ 0 };

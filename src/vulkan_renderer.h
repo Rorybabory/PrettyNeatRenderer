@@ -5,6 +5,7 @@
 #include <glm/vec4.hpp>
 #include "resource.h"
 #define FRAMES_IN_FLIGHT 2
+// #define DESCRIPTOR_HEAP_EXPERIMENTS
 
 struct ShaderData
 {
@@ -25,8 +26,9 @@ int GfxRender();
 
 void GfxPreDestroy();
 void GfxDestroy();
-
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxCreateDescriptorHeap();
+#endif
 void GfxCreateBindlessTextureDesc();
 void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset);
 

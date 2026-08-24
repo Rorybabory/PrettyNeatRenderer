@@ -295,6 +295,23 @@ bool LoadTexture(TextureLoadInfo * loadInfo, Texture & texture)
     };
     VK_CHECK(vkCreateSampler(device, &samplerCreateInfo, nullptr, &texture.sampler));
     
+    VkImageViewCreateInfo viewInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = texture.image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = texImgInfo.format,
+        .subresourceRange = 
+        {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .levelCount = 1,
+            .layerCount = 1
+        }
+    };
+    VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &texture.imageView));
+
+
+
     texture.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     texture.format = texImgInfo.format;
     texture.layerCount = ktxTexture->numLayers;
@@ -335,11 +352,20 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
     VkShaderModule shaderModule = {};
     VK_CHECK(vkCreateShaderModule(device, &smInfo, nullptr, &shaderModule));
 
+    VkPushConstantRange pushConstantRange =
+    {
+        .stageFlags = VK_SHADER_STAGE_ALL,
+        .size = sizeof(VkDeviceAddress)
+    };
+        
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &pipelineInfo->descSetLayout,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange
+        
     };
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipeline.layout));
 
@@ -370,7 +396,7 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
     };
-
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     VkDescriptorSetAndBindingMappingEXT * bindingMappings = NULL;
     uint32_t numBindings = 0;
     GfxGetBindingMappings(&bindingMappings, &numBindings);
@@ -381,18 +407,23 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
         .mappingCount = numBindings,
         .pMappings = bindingMappings,
     };
+    #endif
 
     VkPipelineShaderStageCreateInfo shaderStages[] = 
     {
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
             .pNext = &mappingInfo,
+            #endif
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
             .module = shaderModule, .pName = "main"
         },
         { 
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
             .pNext = &mappingInfo,
+            #endif
             .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
             .module = shaderModule, .pName = "main" 
         }
@@ -445,7 +476,9 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
     VkPipelineCreateFlags2CreateInfo pipelineCreateFlagsInfo = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
         .pNext = &renderingCreateInfo,
+        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT
+        #endif
     };
     VkGraphicsPipelineCreateInfo pipelineCreateInfo{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -460,6 +493,9 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
         .pDepthStencilState = &depthStencilState,
         .pColorBlendState = &colorBlendState,
         .pDynamicState = &dynamicState,
+        #ifndef DESCRIPTOR_HEAP_EXPERIMENTS
+        .layout = pipeline.layout
+        #endif
     };
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline.pipeline));
     vkDestroyShaderModule(device, shaderModule, nullptr);
