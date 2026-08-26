@@ -11,8 +11,8 @@ struct MeshLoadInfo
     const char * filename;
     uint32_t flags;
 };
-bool LoadMesh(MeshLoadInfo * loadInfo, Mesh & mesh);
-
+MeshID LoadMesh(MeshLoadInfo * loadInfo);
+Mesh * GetMesh(MeshID id);
 
 struct TextureLoadInfo
 {
@@ -25,12 +25,15 @@ void DestroyTexture(Texture & texture);
 struct PipelineLoadInfo
 {
     const char * shaderFile;
-    VkDescriptorSetLayout descSetLayout;
+    VkDescriptorSetLayout * descSetLayouts;
+    uint32_t numLayouts;
     uint32_t flags;
 };
 
-bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline);
-void DestroyPipeline(Pipeline & pipeline);
+PipelineID LoadPipeline(PipelineLoadInfo * pipelineInfo);
+Pipeline * GetPipeline(PipelineID id);
+void ClearPipelineRegistry();
+
 
 VkBuffer * GetMeshBuffer();
 VkBuffer * GetMeshIndexBuffer();

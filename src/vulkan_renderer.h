@@ -1,5 +1,6 @@
 #pragma once
 
+#include "glm/ext/vector_float3.hpp"
 #include "volk.h"
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
@@ -7,18 +8,19 @@
 #define FRAMES_IN_FLIGHT 2
 // #define DESCRIPTOR_HEAP_EXPERIMENTS
 
-struct ShaderData
+struct GlobalData
 {
     glm::mat4 proj;
     glm::mat4 view;
-    glm::mat4 model[3];
     glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
-    uint32_t selected = 1;
 };
 
 struct GfxInstance;
 
 void GfxInit();
+
+void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo);
+glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular);
 
 int GfxUpdate();
 
@@ -26,13 +28,21 @@ int GfxRender();
 
 void GfxPreDestroy();
 void GfxDestroy();
+
+
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxCreateDescriptorHeap();
 #endif
-void GfxCreateBindlessTextureDesc();
+void GfxCreateBindlessDesc();
+void GfxCreateBindlessRenderableBuffer();
+
 void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset);
 
-void GfxSetShaderData(ShaderData & shaderData);
+void GfxUpdateScene(Scene * pScene);
+
+void GfxSetGlobalData(GlobalData & globalData);
+
+void GfxSetRenderableData(Scene * pScene);
 
 void GfxCreateRenderable(Renderable * pRenderable);
 
@@ -45,4 +55,5 @@ float GfxGetAspectRatio();
 
 void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT ** bindingMappings, uint32_t * bindingCount);
 VkFormat GfxGetDepthFormat();
-VkDescriptorSetLayout GfxGetDescriptorSetLayout();
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures();
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables();

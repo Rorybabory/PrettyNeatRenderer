@@ -39,6 +39,10 @@ VmaAllocation meshBufferAlloc;
 VmaAllocationInfo meshBufferAllocInfo{};
 VkDeviceSize meshBufferSize = 0;
 
+Pipeline pipelineRegistry[MAX_PIPELINES];
+uint32_t pipelineRegistryCount = 0;
+Mesh meshRegistry[MAX_MESHES];
+uint32_t meshRegistryCount = 0;
 
 const uint32_t MAX_VERTICES = 1<<18;
 const uint32_t MAX_INDICES = 1<<18;
@@ -101,8 +105,9 @@ void AssetLoaderInit()
     vmaSetAllocationName(allocator, meshBufferAlloc, "Mesh Buffer");
 }
 
-bool LoadMesh(MeshLoadInfo * loadInfo, Mesh & mesh)
+MeshID LoadMesh(MeshLoadInfo * loadInfo)
 {
+    Mesh mesh = {};
     const aiScene* scene = aiImportFile( loadInfo->filename,
         aiProcess_CalcTangentSpace       |
         aiProcess_Triangulate            |
@@ -111,12 +116,12 @@ bool LoadMesh(MeshLoadInfo * loadInfo, Mesh & mesh)
     if (!scene)
     {
         spdlog::error("AssetLoader: {}", aiGetErrorString());
-        return false;
+        return -1;
     }
     if (!scene->HasMeshes())
     {
         spdlog::error("AssetLoader: {} does not contain any meshes!", loadInfo->filename);
-        return false;
+        return -1;
     }
 
     aiMesh * assimpMesh = scene->mMeshes[0];
@@ -145,7 +150,15 @@ bool LoadMesh(MeshLoadInfo * loadInfo, Mesh & mesh)
     mesh.vertexBufferSize = vertexSize;
     mesh.offset = meshBufferSize;
     meshBufferSize += vertexSize + indexSize;
-    return true;
+
+
+    meshRegistry[meshRegistryCount++] = mesh;
+    return (MeshID)(meshRegistryCount-1);
+}
+
+Mesh * GetMesh(MeshID id)
+{
+    return &meshRegistry[id];
 }
 
 bool LoadTexture(TextureLoadInfo * loadInfo, Texture & texture)
@@ -323,14 +336,17 @@ void DestroyTexture(Texture & texture)
 {
     vmaDestroyImage(allocator, texture.image, texture.allocation);
     vkDestroySampler(device, texture.sampler, nullptr);
+    vkDestroyImageView(device, texture.imageView, nullptr);
 }
-bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
+PipelineID LoadPipeline(PipelineLoadInfo * pipelineInfo)
 {
+    Pipeline pipeline;
+
     FILE * spvFile = fopen(pipelineInfo->shaderFile, "rb");
     if (!spvFile)
     {
         spdlog::error("Failed to load shader: {}", pipelineInfo->shaderFile);
-        return false;
+        return -1;
     }
     fseek(spvFile, 0, SEEK_END);
     size_t fileLength = ftell(spvFile);
@@ -338,7 +354,7 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
     if (fileLength > MAX_SHADER_SIZE)
     {
         spdlog::error("Shader is to large, increase max shader size: {}", pipelineInfo->shaderFile);
-        return false;
+        return -1;
     }
     fread(scratchShaderSrc, 1, fileLength, spvFile);
     fclose(spvFile);
@@ -361,8 +377,8 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &pipelineInfo->descSetLayout,
+        .setLayoutCount = pipelineInfo->numLayouts,
+        .pSetLayouts = pipelineInfo->descSetLayouts,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushConstantRange
         
@@ -499,13 +515,26 @@ bool LoadPipeline(PipelineLoadInfo * pipelineInfo, Pipeline & pipeline)
     };
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline.pipeline));
     vkDestroyShaderModule(device, shaderModule, nullptr);
-    return true;
+
+
+    pipelineRegistry[pipelineRegistryCount++] = pipeline;
+    return (PipelineID)(pipelineRegistryCount-1);
 }
-void DestroyPipeline(Pipeline & pipeline)
+
+Pipeline * GetPipeline(PipelineID id)
 {
-    vkDestroyPipeline(device, pipeline.pipeline, nullptr);
-    vkDestroyPipelineLayout(device, pipeline.layout, nullptr);
+    return &pipelineRegistry[id];
 }
+
+void ClearPipelineRegistry()
+{
+    for (uint32_t i = 0; i < pipelineRegistryCount; ++i)
+    {
+        vkDestroyPipeline(device, pipelineRegistry[i].pipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineRegistry[i].layout, nullptr);
+    }
+}
+
 void AssetLoaderDestroy()
 {
     free(scratchShaderSrc);

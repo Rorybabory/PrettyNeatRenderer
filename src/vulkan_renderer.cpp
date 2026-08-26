@@ -1,4 +1,6 @@
 
+#include "glm/trigonometric.hpp"
+#include "resource.h"
 #include "volk.h"
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
@@ -77,13 +79,6 @@ Mesh * mesh = NULL;
 uint32_t frameIndex = 0;
 uint32_t imageIndex = 0;
 
-struct ShaderDataBuffer 
-{
-    VkBuffer buffer;
-    VmaAllocation alloc;
-    VmaAllocationInfo allocInfo;
-    VkDeviceAddress deviceAddress;
-};
 
 struct PushConstants
 {
@@ -130,13 +125,30 @@ struct DescriptorHeapData
 DescriptorHeapData heapData;
 #else
 
+VkDescriptorPool descriptorPool;
+
 VkDescriptorSetLayout descriptorSetLayoutTex;
 VkDescriptorSet descriptorSetTex;
-VkDescriptorPool descriptorPool;
+
+VkDescriptorSetLayout descriptorSetLayoutRenderables;
+VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
+VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
+VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
+VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
+
+uint32_t renderableCount = 0;
 
 #endif
 
-ShaderDataBuffer shaderDataBuffers[FRAMES_IN_FLIGHT];
+struct GlobalDataBuffer 
+{
+    VkBuffer buffer;
+    VmaAllocation alloc;
+    VmaAllocationInfo allocInfo;
+    VkDeviceAddress deviceAddress;
+};
+
+GlobalDataBuffer globalDataBuffers[FRAMES_IN_FLIGHT];
 
 
 //Properties and Limits
@@ -234,7 +246,11 @@ void GfxCreateInstance()
         createInfo.enabledLayerCount = 0;
     }
 
-
+    spdlog::info("Instance Extensions (Count: {}):", createInfo.enabledExtensionCount);
+    for (uint32_t i = 0; i < createInfo.enabledExtensionCount; ++i)
+    {
+        spdlog::info("  - {}", createInfo.ppEnabledExtensionNames[i]);
+    }
     VK_CHECK(vkCreateInstance(&createInfo, 0, &instance));
     spdlog::info("Vulkan Instance Created");
 
@@ -245,6 +261,47 @@ void GfxCreateInstance()
     }
     free(instanceExtension);
     volkLoadInstance(instance);
+}
+
+glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular)
+{
+    glm::mat4 model = glm::identity<glm::mat4>();
+    model =     glm::translate(model, position);
+
+    model =     glm::scale(model, scale);
+   
+    model =     glm::rotate(model,  glm::degrees(rotationEular.x), glm::vec3(1.0f, 0.0f, 0.0f));
+    model =     glm::rotate(model,  glm::degrees(rotationEular.y), glm::vec3(0.0f, 1.0f, 0.0f));
+    model =     glm::rotate(model,  glm::degrees(rotationEular.z), glm::vec3(0.0f, 0.0f, 1.0f));
+
+    return model;
+}
+
+void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo)
+{
+    if (scene.numRenderables >= MAX_RENDERABLES-1)
+    {
+        return;
+    }
+    uint32_t index = scene.numRenderables;
+    Renderable renderable = {};
+    RenderableData data = {};
+
+    renderable.index = index;
+    renderable.meshID = createInfo->meshID;
+    renderable.pipelineID = createInfo->pipelineID;
+    
+    for (uint32_t i = 0; i < 8; ++i)
+    {
+        data.textureIDs[i] = createInfo->textureIDs[i];
+    }
+
+    data.tint = createInfo->tint;
+    data.transform = createInfo->transform;
+
+    memcpy(&scene.pRenderableData[index], &data, sizeof(RenderableData));
+    memcpy(&scene.pRenderables[index], &renderable, sizeof(Renderable));
+    scene.numRenderables++;
 }
 
 void GfxSelectDevice()
@@ -260,13 +317,17 @@ void GfxSelectDevice()
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &deviceCount, devices));
     physicalDevice = devices[0];
     free(devices);
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     heapProperties = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT
     };
+    #endif
     VkPhysicalDeviceProperties2 deviceProperties = 
     { 
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         .pNext = &heapProperties
+        #endif
     };
     vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties);
     spdlog::info("Selected device: {}", deviceProperties.properties.deviceName);
@@ -297,19 +358,28 @@ void GfxCreateDevice()
     };
     const char * deviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        
+        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
         VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME
+        #endif
     };
-    VkPhysicalDeviceFeatures enabledVk10Features = {
-        .samplerAnisotropy = VK_TRUE
+    
+    VkPhysicalDeviceVulkan11Features enabledVk11Features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = NULL, // End of the chain
+        .storageBuffer16BitAccess = true,
+        .uniformAndStorageBuffer16BitAccess = true,
     };
     VkPhysicalDeviceVulkan12Features enabledVk12Features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &enabledVk11Features,
         .descriptorIndexing = true,
         .shaderSampledImageArrayNonUniformIndexing = true,
         .descriptorBindingVariableDescriptorCount = true,
         .runtimeDescriptorArray = true,
-        .bufferDeviceAddress = true
+        .bufferDeviceAddress = true,
+        .bufferDeviceAddressCaptureReplay = true
     };
     VkPhysicalDeviceVulkan13Features enabledVk13Features = 
     {
@@ -318,33 +388,62 @@ void GfxCreateDevice()
         .synchronization2 = true,
         .dynamicRendering = true,
     };
+    VkPhysicalDeviceFeatures enabledVk10Features = 
+    {
+        .samplerAnisotropy = true,
+        .shaderInt16 = true
+    };
+    
+    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     VkPhysicalDeviceVulkan14Features enabledVk14Features = 
     {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
         .pNext = &enabledVk13Features
     };
-        VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptorHeapFeatures = 
+    
+    
+    VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptorHeapFeatures = 
     {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT,
         .pNext = &enabledVk14Features,
         .descriptorHeap = true,
         .descriptorHeapCaptureReplay = true
     };
-
-
+    #endif
+    VkPhysicalDeviceFeatures2 features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+        .pNext = &descriptorHeapFeatures,
+        #else
+        .pNext = &enabledVk13Features,
+        #endif
+        .features = enabledVk10Features
+    };
     VkDeviceCreateInfo deviceInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &descriptorHeapFeatures,
+        .pNext = &features,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queueInfo,
+        #ifndef DESCRIPTOR_HEAP_EXPERIMENTS
+        .enabledExtensionCount = 1,
+        #else
         .enabledExtensionCount = 3,
-        .ppEnabledExtensionNames = &deviceExtensions[0],
-        .pEnabledFeatures = &enabledVk10Features
-    };
-    VK_CHECK(vkCreateDevice(physicalDevice, &deviceInfo, NULL, &device));
-    vkGetDeviceQueue(device, queueFamily, 0, &graphicsQueue);
+        #endif
 
+        .ppEnabledExtensionNames = &deviceExtensions[0],
+        .pEnabledFeatures = NULL
+    };
+    spdlog::info("Number of enabled extensions: {}", deviceInfo.enabledExtensionCount);
+    for (uint32_t i = 0; i < deviceInfo.enabledExtensionCount; ++i)
+    {
+        spdlog::info("Extension: {}", deviceInfo.ppEnabledExtensionNames[i]);
+    }
+    VK_CHECK(vkCreateDevice(physicalDevice, &deviceInfo, NULL, &device));
+    spdlog::info("Created Device");
+    vkGetDeviceQueue(device, queueFamily, 0, &graphicsQueue);
+    spdlog::info("Got device queue");
     volkLoadDevice(device);
+    spdlog::info("Volk loaded device");
 }
 
 VkFormat GfxGetDepthFormat()
@@ -389,17 +488,29 @@ void GfxCreateVMA()
     vulkanFunctions.vkCreateImage = vkCreateImage;
     vulkanFunctions.vkDestroyImage = vkDestroyImage;
     vulkanFunctions.vkCmdCopyBuffer = vkCmdCopyBuffer;
+
+    vulkanFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2;
+    vulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2;
+    vulkanFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
+    vulkanFunctions.vkBindImageMemory2KHR = vkBindImageMemory2;
+    vulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
+    
+    vulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
+    vulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
+
     VmaAllocatorCreateInfo allocatorInfo =
     {
         .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         .physicalDevice = physicalDevice,
         .device = device,
         .pVulkanFunctions = &vulkanFunctions,
-        .instance = instance
+        .instance = instance,
+        .vulkanApiVersion = VK_API_VERSION_1_3
     };
 
 
     VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator));
+    spdlog::info("Created VMA Allocator");
 }
 
 void GfxCreateSwapchain()
@@ -525,9 +636,12 @@ void GfxCreateWindow()
 
 void GfxCreateSurface()
 {
+    spdlog::info("About to Create Surface");
     VK_CHECK(glfwCreateWindowSurface(instance, window, NULL, &surface));
 
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCaps));
+    
+    spdlog::info("Created Surface");
 }
 
 float GfxGetAspectRatio() {
@@ -539,7 +653,7 @@ void GfxCreateShaderData()
     VkBufferCreateInfo bufferInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(ShaderData),
+        .size = sizeof(GlobalData),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
     };
     VmaAllocationCreateInfo allocCreateInfo = 
@@ -556,21 +670,21 @@ void GfxCreateShaderData()
                 allocator, 
                 &bufferInfo, 
                 &allocCreateInfo, 
-                &shaderDataBuffers[i].buffer, 
-                &shaderDataBuffers[i].alloc, 
-                &shaderDataBuffers[i].allocInfo
+                &globalDataBuffers[i].buffer, 
+                &globalDataBuffers[i].alloc, 
+                &globalDataBuffers[i].allocInfo
             )
         );
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = shaderDataBuffers[i].buffer
+            .buffer = globalDataBuffers[i].buffer
         };
-        shaderDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
+        globalDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
 
         char allocName[96];
-        sprintf(allocName, "Shader Data Allocation: %i", i);
+        sprintf(allocName, "Global Data Allocation: %i", i);
 
-        vmaSetAllocationName(allocator, shaderDataBuffers[i].alloc, allocName);
+        vmaSetAllocationName(allocator, globalDataBuffers[i].alloc, allocName);
     }
 }
 
@@ -615,18 +729,24 @@ void GfxCreateCommandBuffer()
 
 void GfxCreateDescriptorPool()
 {
-    VkDescriptorPoolSize poolSize = 
+    VkDescriptorPoolSize poolSizes[] = 
     {
-        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = MAX_TEXTURES
+        {
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = MAX_TEXTURES
+        }, 
+        {
+            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = MAX_RENDERABLES * 2
+        }, 
     };
     VkDescriptorPoolCreateInfo descPoolCreateInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 1,
-        .poolSizeCount = 1,
-        .pPoolSizes = &poolSize
+        .maxSets = MAX_DESCRIPTOR_SETS,
+        .poolSizeCount = 2,
+        .pPoolSizes = poolSizes
     };
     VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descriptorPool));
 }
@@ -715,11 +835,11 @@ void GfxCreateDescriptorHeap()
 
     VkDeviceAddressRangeEXT deviceAddrRanges[2] = {
         {
-            .address = shaderDataBuffers[0].deviceAddress,
+            .address = globalDataBuffers[0].deviceAddress,
             .size = sizeof(ShaderData)
         },
         {
-            .address = shaderDataBuffers[1].deviceAddress,
+            .address = globalDataBuffers[1].deviceAddress,
             .size = sizeof(ShaderData)
         }
     };
@@ -918,9 +1038,33 @@ void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
     vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 }
 
-void GfxSetShaderData(ShaderData & shaderData)
+void GfxUpdateScene(Scene * pScene)
 {
-    memcpy(shaderDataBuffers[frameIndex].allocInfo.pMappedData, &shaderData, sizeof(ShaderData));
+    VkDescriptorBufferInfo bufferDescriptor = {};
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        bufferDescriptor.buffer = renderableDataBuffers[i];
+        bufferDescriptor.offset = 0;
+        bufferDescriptor.range = sizeof(RenderableData) * pScene->numRenderables;
+
+        VkWriteDescriptorSet writeDescSet = 
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptorSetsRenderableData[i],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
+            .pBufferInfo = &bufferDescriptor
+        };
+        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+    }
+    renderableCount = pScene->numRenderables;
+}
+
+void GfxSetGlobalData(GlobalData & globalData)
+{
+    memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
 
 
@@ -943,6 +1087,8 @@ void GfxInit()
     #ifdef DESCRIPTOR_HEAP_EXPERIMENTS 
     GfxCreateDescriptorHeap();
     #endif
+    GfxCreateBindlessRenderableBuffer();
+    GfxCreateBindlessDesc();
 }
 
 int GfxUpdate()
@@ -1020,7 +1166,9 @@ void GfxRenderScene(VkCommandBuffer & cmd)
     GfxBindDescriptorHeaps();
     #else
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 0, 1, &descriptorSetTex, 0, nullptr);
-    vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
+    
+    vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
     #endif
     
 
@@ -1030,7 +1178,12 @@ void GfxRenderScene(VkCommandBuffer & cmd)
     vkCmdBindVertexBuffers(cmd, 0, 1, GetMeshBuffer(), &vOffset);
     vkCmdBindIndexBuffer(cmd, *GetMeshBuffer(), mesh->vertexBufferSize, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexed(cmd, mesh->indexCount, 3, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, mesh->indexCount, renderableCount, 0, 0, 0);
+}
+
+void GfxSetRenderableData(Scene * pScene)
+{
+    memcpy(renderableDataAllocInfo[frameIndex].pMappedData, &pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
 }
 
 int GfxRender()
@@ -1196,7 +1349,7 @@ void GfxDestroy()
 
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        vmaDestroyBuffer(allocator, shaderDataBuffers[i].buffer, shaderDataBuffers[i].alloc);
+        vmaDestroyBuffer(allocator, globalDataBuffers[i].buffer, globalDataBuffers[i].alloc);
         
         vkDestroyFence(device, fences[i], nullptr);
         vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
@@ -1235,10 +1388,49 @@ void GfxDestroy()
     glfwDestroyWindow(window);
 }
 
-void GfxCreateBindlessTextureDesc()
+void GfxCreateBindlessRenderableBuffer()
+{
+    VkBufferCreateInfo bufferInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(RenderableData) * MAX_RENDERABLES,
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
+    };
+    VmaAllocationCreateInfo allocCreateInfo = 
+    {
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO
+    };
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(
+            vmaCreateBuffer(
+                allocator, 
+                &bufferInfo, 
+                &allocCreateInfo, 
+                &renderableDataBuffers[i], 
+                &renderableDataAllocations[i], 
+                &renderableDataAllocInfo[i]
+            )
+        );
+        VkBufferDeviceAddressInfo bdaInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = renderableDataBuffers[i]
+        };
+
+        char allocName[96];
+        sprintf(allocName, "Renderable Data Allocation: %i", i);
+
+        vmaSetAllocationName(allocator, renderableDataAllocations[i], allocName);
+    }
+}
+
+void GfxCreateBindlessDesc()
 {
     //Create the Descriptor Layout
-    VkDescriptorBindingFlags descVariableFlag = 
+    VkDescriptorBindingFlags descVariableFlag =
     {
         VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
     };
@@ -1248,6 +1440,11 @@ void GfxCreateBindlessTextureDesc()
         .bindingCount = 1,
         .pBindingFlags = &descVariableFlag
     };
+    
+    
+
+    
+    //Texture Descriptor Set
     VkDescriptorSetLayoutBinding descLayoutBindingTex = {
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = MAX_TEXTURES,
@@ -1261,9 +1458,9 @@ void GfxCreateBindlessTextureDesc()
     };
     VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutTexCreateInfo, NULL, &descriptorSetLayoutTex));
 
-    
     uint32_t variableDescCount = MAX_TEXTURES;
-    VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAllocInfo = {
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAllocInfo = 
+    {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
         .descriptorSetCount = 1,
         .pDescriptorCounts = &variableDescCount
@@ -1278,11 +1475,51 @@ void GfxCreateBindlessTextureDesc()
     };
     VK_CHECK(vkAllocateDescriptorSets(device, &texDescSetAllocInfo, &descriptorSetTex));
 
+
+    //Renderable Data Descriptor Set
+    VkDescriptorSetLayoutBinding descLayoutBindingRenderable = {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .descriptorCount = MAX_RENDERABLES,
+        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS
+    };
+    VkDescriptorSetLayoutCreateInfo descLayoutRenderableCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = &descBindingFlags,
+        .bindingCount = 1,
+        .pBindings = &descLayoutBindingRenderable
+    };
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutRenderableCreateInfo, NULL, &descriptorSetLayoutRenderables));
+
+    variableDescCount = MAX_RENDERABLES;
+    variableDescCountAllocInfo =
+    {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+        .descriptorSetCount = 1,
+        .pDescriptorCounts = &variableDescCount
+    };
+    VkDescriptorSetAllocateInfo renderableDescSetAllocInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = &variableDescCountAllocInfo,
+        .descriptorPool = descriptorPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &descriptorSetLayoutRenderables
+    };
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableData[i]));
+    }
 }
 
 
 
-VkDescriptorSetLayout GfxGetDescriptorSetLayout()
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures()
 {
     return descriptorSetLayoutTex;
+}
+
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables()
+{
+    return descriptorSetLayoutRenderables;
 }

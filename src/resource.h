@@ -3,6 +3,12 @@
 #include <glm/glm.hpp>
 #include "volk.h"
 #include <vk_mem_alloc.h>
+
+#define MAX_RENDERABLES 4095
+#define MAX_PIPELINES 65535
+#define MAX_MESHES 65535
+#define MAX_DESCRIPTOR_SETS 4
+
 struct Vertex 
 {
     glm::vec3 mPos;
@@ -10,6 +16,7 @@ struct Vertex
     glm::vec2 mUv;
 };
 
+typedef uint16_t MeshID;
 struct Mesh 
 {
     uint32_t vertexCount;
@@ -29,27 +36,43 @@ struct Texture
     uint32_t layerCount;
 };
 
+typedef uint16_t PipelineID;
 struct Pipeline
 {
     VkPipeline pipeline;
     VkPipelineLayout layout;
 };
 
+struct RenderableCreateInfo
+{
+    uint16_t textureIDs[8];
+    glm::mat4 transform;
+    glm::vec4 tint;
+    PipelineID pipelineID;
+    MeshID meshID;
+};
+
+//128 bytes large, keeping it this size makes it significantly easier to manage
+struct RenderableData
+{
+    uint16_t textureIDs[8];
+    glm::mat4 transform;
+    glm::vec4 tint;
+    glm::vec4 unused0;
+    glm::vec4 unused1;
+};
+
 struct Renderable 
 {
-    uint16_t textureIDs[8];
-    glm::vec4 color;
-    uint32_t transformID;
-    uint16_t pipelineID;
-    uint16_t meshID;
+    uint32_t index;
+    PipelineID pipelineID;
+    MeshID meshID;
 };
+
+
 struct Scene
 {
-    Renderable * pRenderables;
-};
-struct PushData
-{
-    uint16_t textureIDs[8];
-    glm::vec4 color;
-    uint32_t transformID;
+    Renderable pRenderables[MAX_RENDERABLES];
+    RenderableData pRenderableData[MAX_RENDERABLES];
+    uint32_t numRenderables = 0;
 };

@@ -1,3 +1,4 @@
+#include "resource.h"
 #include "vulkan_renderer.h"
 #include "asset_loader.h"
 
@@ -5,11 +6,13 @@
 #include "glm/ext/matrix_transform.hpp"
 #include <GLFW/glfw3.h>
 
-Mesh mMonkeyMesh;
-Mesh mCubeMesh;
-Mesh mPlaneMesh;
+MeshID mMonkeyMesh;
+MeshID mCubeMesh;
+MeshID mPlaneMesh;
 Texture mTestTexture;
-Pipeline mPipeline;
+PipelineID mPipelineID;
+
+Scene scene;
 
 int main() {
     GfxInit();
@@ -20,27 +23,75 @@ int main() {
     {
         .filename = "textures/brick.ktx2"
     };
-    LoadMesh(&meshLoadInfo, mMonkeyMesh);
+    mMonkeyMesh = LoadMesh(&meshLoadInfo);
     meshLoadInfo.filename = "meshes/cube.obj";
-    LoadMesh(&meshLoadInfo, mCubeMesh);
+    mCubeMesh = LoadMesh(&meshLoadInfo);
     meshLoadInfo.filename = "meshes/plane.obj";
-    LoadMesh(&meshLoadInfo, mPlaneMesh);
+    mPlaneMesh = LoadMesh(&meshLoadInfo);
 
     
     LoadTexture(&texLoadInfo, mTestTexture);
+
+    GfxSetMesh(GetMesh(mMonkeyMesh));
     
-    GfxCreateBindlessTextureDesc();
     GfxUpdateTextures(&mTestTexture, 1, 0);
     
+    VkDescriptorSetLayout layouts[] = 
+    {
+        GfxGetDescriptorSetLayoutTextures(),
+        GfxGetDescriptorSetLayoutRenderables(),
+    };
+
     PipelineLoadInfo pipelineInfo = 
     {
         .shaderFile = "shaders/test.spv",
-        .descSetLayout = GfxGetDescriptorSetLayout(),
+        .descSetLayouts = layouts,
+        .numLayouts = 2
     };
-    LoadPipeline(&pipelineInfo, mPipeline);
+    mPipelineID = LoadPipeline(&pipelineInfo);
+    GfxSetPipeline(GetPipeline(mPipelineID));
 
-    GfxSetPipeline(&mPipeline);
-    GfxSetMesh(&mMonkeyMesh);
+    //Adds a pretty cool monkey to the scene
+    RenderableCreateInfo renderableMonkeyInfo =
+    {
+        .textureIDs = {
+            0,
+        },
+        .transform = GfxGenerateModelMatrix(glm::vec3(-3.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f)),
+        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .pipelineID = mPipelineID,
+        .meshID = mMonkeyMesh,
+    };
+    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
+
+    //Adds another pretty cool monkey to the scene
+    renderableMonkeyInfo =
+    {
+        .textureIDs = {
+            0,
+        },
+        .transform = GfxGenerateModelMatrix(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, 35.0f, 0.0f)),
+        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .pipelineID = mPipelineID,
+        .meshID = mMonkeyMesh,
+    };
+    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
+
+    //Wow more monkeyz
+    renderableMonkeyInfo =
+    {
+        .textureIDs = {
+            0,
+        },
+        .transform = GfxGenerateModelMatrix(glm::vec3(3.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, -30.0f, 0.0f)),
+        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+        .pipelineID = mPipelineID,
+        .meshID = mMonkeyMesh,
+    };
+    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
+
+    GfxUpdateScene(&scene);
+
 
     float dt = 0.0f;
     float lastTime = 0.0f;
@@ -49,21 +100,20 @@ int main() {
         dt = glfwGetTime() - lastTime;
         lastTime = glfwGetTime();
         glm::vec3 camPos = glm::vec3(cosf(glfwGetTime()*0.25f)*10.0f, 1.0f, sinf(glfwGetTime()*0.25f)*10.0f);
-        ShaderData shaderData;
-        shaderData.proj = glm::perspective(glm::radians(45.0f), GfxGetAspectRatio(), 0.1f, 32.0f);
-        shaderData.proj[1][1] *= -1;
-        shaderData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        for (auto i = 0; i < 3; i++) {
-            glm::vec3 instancePos = glm::vec3((float)(i - 1) * 3.0f, 0.0f, 0.0f);
-            shaderData.model[i] = glm::translate(glm::mat4(1.0f), instancePos);
-        }
-        GfxSetShaderData(shaderData);
+        GlobalData globalData;
+        globalData.proj = glm::perspective(glm::radians(45.0f), GfxGetAspectRatio(), 0.1f, 32.0f);
+        globalData.proj[1][1] *= -1;
+        globalData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        GfxSetGlobalData(globalData);
+
+        GfxSetRenderableData(&scene);
 
         GfxRender();
     }
     GfxPreDestroy();
     DestroyTexture(mTestTexture);
-    DestroyPipeline(mPipeline);
+    ClearPipelineRegistry();
     
     GfxDestroy();
     return 0;
