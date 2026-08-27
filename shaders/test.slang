@@ -12,7 +12,6 @@ struct GlobalData {
     uint32_t selected;
 };
 
-#define MAX_RENDERABLES 4095
 
 struct RenderableData
 {

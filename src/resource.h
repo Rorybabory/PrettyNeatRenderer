@@ -4,7 +4,7 @@
 #include "volk.h"
 #include <vk_mem_alloc.h>
 
-#define MAX_RENDERABLES 4095
+#define MAX_RENDERABLES 262144
 #define MAX_PIPELINES 65535
 #define MAX_MESHES 65535
 #define MAX_DESCRIPTOR_SETS 4
@@ -56,7 +56,7 @@ struct RenderableCreateInfo
 struct RenderableData
 {
     uint16_t textureIDs[8];
-    glm::mat4 transform;
+    glm::mat4x4 transform;
     glm::vec4 tint;
     glm::vec4 unused0;
     glm::vec4 unused1;
@@ -72,7 +72,7 @@ struct Renderable
 
 struct Scene
 {
-    Renderable pRenderables[MAX_RENDERABLES];
-    RenderableData pRenderableData[MAX_RENDERABLES];
+    Renderable * pRenderables;
+    RenderableData * pRenderableData;
     uint32_t numRenderables = 0;
 };

@@ -724,7 +724,16 @@ void GfxCreateCommandBuffer()
         .commandBufferCount = FRAMES_IN_FLIGHT
     };
     VK_CHECK(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &commandBuffers[0]));
+}
 
+VkCommandPool GfxGetCommandPool()
+{
+    return commandPool;
+}
+
+VkQueue GfxGetQueue()
+{
+    return graphicsQueue;
 }
 
 void GfxCreateDescriptorPool()
@@ -1037,7 +1046,12 @@ void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
     };
     vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 }
-
+void GfxCreateScene(Scene * pScene)
+{
+    pScene->pRenderableData = (RenderableData*)malloc(sizeof(RenderableData) * MAX_RENDERABLES);
+    pScene->pRenderables = (Renderable*)malloc(sizeof(Renderable) * MAX_RENDERABLES);
+    pScene->numRenderables = 0;
+}
 void GfxUpdateScene(Scene * pScene)
 {
     VkDescriptorBufferInfo bufferDescriptor = {};
@@ -1183,7 +1197,10 @@ void GfxRenderScene(VkCommandBuffer & cmd)
 
 void GfxSetRenderableData(Scene * pScene)
 {
-    memcpy(renderableDataAllocInfo[frameIndex].pMappedData, &pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
+    }
 }
 
 int GfxRender()
@@ -1401,7 +1418,7 @@ void GfxCreateBindlessRenderableBuffer()
         .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
                  VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
                  VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
     };
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {

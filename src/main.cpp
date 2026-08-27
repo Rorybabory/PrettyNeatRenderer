@@ -15,7 +15,9 @@ PipelineID mPipelineID;
 Scene scene;
 
 int main() {
+    GfxCreateScene(&scene);
     GfxInit();
+    
     MeshLoadInfo meshLoadInfo = {
         .filename = "meshes/monkey.obj"
     };
@@ -50,47 +52,33 @@ int main() {
     };
     mPipelineID = LoadPipeline(&pipelineInfo);
     GfxSetPipeline(GetPipeline(mPipelineID));
-
-    //Adds a pretty cool monkey to the scene
-    RenderableCreateInfo renderableMonkeyInfo =
+    int monkeysPerAxis = 32;
+    for (uint32_t i = 0; i < monkeysPerAxis; ++i)
     {
-        .textureIDs = {
-            0,
-        },
-        .transform = GfxGenerateModelMatrix(glm::vec3(-3.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f)),
-        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        .pipelineID = mPipelineID,
-        .meshID = mMonkeyMesh,
-    };
-    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
-
-    //Adds another pretty cool monkey to the scene
-    renderableMonkeyInfo =
-    {
-        .textureIDs = {
-            0,
-        },
-        .transform = GfxGenerateModelMatrix(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, 35.0f, 0.0f)),
-        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        .pipelineID = mPipelineID,
-        .meshID = mMonkeyMesh,
-    };
-    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
-
-    //Wow more monkeyz
-    renderableMonkeyInfo =
-    {
-        .textureIDs = {
-            0,
-        },
-        .transform = GfxGenerateModelMatrix(glm::vec3(3.0f, 0.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.0f, -30.0f, 0.0f)),
-        .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        .pipelineID = mPipelineID,
-        .meshID = mMonkeyMesh,
-    };
-    GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
-
+        for (uint32_t j = 0; j < monkeysPerAxis; ++j)
+        {
+            for (uint32_t k = 0; k < monkeysPerAxis; ++k)
+            {
+                float divisor = (float)monkeysPerAxis / 4.0f;
+                //Adds a pretty cool monkey to the scene
+                RenderableCreateInfo renderableMonkeyInfo =
+                {
+                    .textureIDs = {
+                        0,
+                    },
+                    .transform = GfxGenerateModelMatrix(glm::vec3(-2.0f + ((float)i / divisor), -2.0f + ((float)j / divisor), -2.0f + ((float)k / divisor)), glm::vec3(0.025f, 0.025f, 0.025f), glm::vec3(0.0f, 0.0f, 0.0f)),
+                    .tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                    .pipelineID = mPipelineID,
+                    .meshID = mMonkeyMesh,
+                };
+                GfxSceneAddRenderable(scene, &renderableMonkeyInfo);
+            }
+        }
+        
+    }
+    
     GfxUpdateScene(&scene);
+    GfxSetRenderableData(&scene);
 
 
     float dt = 0.0f;
@@ -107,7 +95,6 @@ int main() {
 
         GfxSetGlobalData(globalData);
 
-        GfxSetRenderableData(&scene);
 
         GfxRender();
     }

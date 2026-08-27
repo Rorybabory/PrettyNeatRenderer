@@ -4,6 +4,7 @@
 #include "volk.h"
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
+#include <vulkan/vulkan_core.h>
 #include "resource.h"
 #define FRAMES_IN_FLIGHT 2
 // #define DESCRIPTOR_HEAP_EXPERIMENTS
@@ -38,6 +39,7 @@ void GfxCreateBindlessRenderableBuffer();
 
 void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset);
 
+void GfxCreateScene(Scene * pScene);
 void GfxUpdateScene(Scene * pScene);
 
 void GfxSetGlobalData(GlobalData & globalData);
@@ -57,3 +59,7 @@ void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT ** bindingMapping
 VkFormat GfxGetDepthFormat();
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures();
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables();
+
+VkCommandPool GfxGetCommandPool();
+
+VkQueue GfxGetQueue();
