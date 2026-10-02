@@ -39,7 +39,7 @@ target_compile_definitions(Renderer PRIVATE
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
 
-file(GLOB TEXTURES "textures/*.png" "textures/*.jpg")
+file(GLOB TEXTURES "textures/*.png")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/textures")
 
 foreach(IMG IN LISTS TEXTURES)

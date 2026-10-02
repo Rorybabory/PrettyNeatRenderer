@@ -13,6 +13,8 @@ struct MeshLoadInfo
 };
 MeshID LoadMesh(MeshLoadInfo * loadInfo);
 Mesh * GetMesh(MeshID id);
+uint32_t GetNumMeshes();
+
 
 struct TextureLoadInfo
 {
@@ -35,5 +37,5 @@ Pipeline * GetPipeline(PipelineID id);
 void ClearPipelineRegistry();
 
 
-VkBuffer * GetMeshBuffer();
+VkBuffer * GetMeshVertexBuffer();
 VkBuffer * GetMeshIndexBuffer();

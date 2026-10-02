@@ -155,6 +155,19 @@ always_run_script/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/always_run_script.dir/build.make CMakeFiles/always_run_script.dir/build
 .PHONY : always_run_script/fast
 
+#=============================================================================
+# Target rules for targets named Textures
+
+# Build rule for target.
+Textures: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 Textures
+.PHONY : Textures
+
+# fast build rule for target.
+Textures/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Textures.dir/build.make CMakeFiles/Textures.dir/build
+.PHONY : Textures/fast
+
 src/asset_loader.o: src/asset_loader.cpp.o
 .PHONY : src/asset_loader.o
 
@@ -332,6 +345,7 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... Shaders"
+	@echo "... Textures"
 	@echo "... always_run_script"
 	@echo "... Renderer"
 	@echo "... src/asset_loader.o"

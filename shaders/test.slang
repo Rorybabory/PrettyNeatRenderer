@@ -12,14 +12,16 @@ struct GlobalData {
     uint32_t selected;
 };
 
-
 struct RenderableData
 {
-    uint16_t textureIDs[8];
-    float4x4 transform;
-    float4 tint;
-    float4 unused0;
-    float4 unused1;
+    uint16_t4 textureIDs_0_3;
+    uint16_t2 textureIDs_4_5;
+    uint16_t mesh;
+    uint16_t _padding;
+
+    float4 transformRow0;
+    float4 transformRow1;
+    float4 transformRow2;
 };
 
 struct VSOutput {
@@ -29,6 +31,7 @@ struct VSOutput {
     float3 Factor;
     float3 LightVec;
     float3 ViewVec;
+    uint32_t textureID;
 };
 
 [[vk::binding(0, 0)]] uniform Sampler2D g_textures[];
@@ -39,15 +42,21 @@ struct VSOutput {
 VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex : SV_VulkanInstanceID) 
 {
     VSOutput output;
-    float4x4 modelMat = renderableData[instanceIndex].transform;
-    output.Normal = mul((float3x3)mul(globalData->view, modelMat), input.Normal);
+    float4x4 modelMat4 = float4x4(
+        renderableData[instanceIndex].transformRow0,
+        renderableData[instanceIndex].transformRow1,
+        renderableData[instanceIndex].transformRow2,
+        float4(0.0f, 0.0f, 0.0f, 1.0f)
+    );
+    output.Normal = mul((float3x3)mul(globalData->view, modelMat4), input.Normal);
     output.UV = input.UV;
-    output.Pos = mul(globalData->projection, mul(globalData->view, mul(modelMat, float4(input.Pos.xyz, 1.0))));
+    output.Pos = mul(globalData->projection, mul(globalData->view, mul(modelMat4, float4(input.Pos.xyz, 1.0))));
     output.Factor = 1.0f;
     // Calculate view vectors required for lighting
-    float4 fragPos = mul(mul(globalData->view, modelMat), float4(input.Pos.xyz, 1.0));
+    float4 fragPos = mul(mul(globalData->view, modelMat4), float4(input.Pos.xyz, 1.0));
     output.LightVec = globalData->lightPos.xyz - fragPos.xyz;
     output.ViewVec = -fragPos.xyz;
+    output.textureID = renderableData[instanceIndex].textureIDs_0_3.x;
     return output;
 }
 
@@ -62,6 +71,6 @@ float4 main(VSOutput input)
     float3 diffuse = max(dot(N, L), 0.0025);
     float3 specular = pow(max(dot(R, V), 0.0), 16.0) * 0.75;
     // Sample from texture
-    float3 color = g_textures[0].Sample(input.UV).rgb * input.Factor;
+    float3 color = g_textures[input.textureID].Sample(input.UV).rgb * input.Factor;
     return float4(diffuse * color.rgb + specular, 1.0);
 }

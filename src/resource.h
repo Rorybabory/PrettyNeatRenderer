@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "volk.h"
 #include <vk_mem_alloc.h>
+#include <vulkan/vulkan_core.h>
 
 #define MAX_RENDERABLES 262144
 #define MAX_PIPELINES 65535
@@ -17,13 +18,7 @@ struct Vertex
 };
 
 typedef uint16_t MeshID;
-struct Mesh 
-{
-    uint32_t vertexCount;
-    uint32_t indexCount;
-    VkDeviceSize vertexBufferSize;
-    VkDeviceSize offset;
-};
+typedef VkDrawIndexedIndirectCommand Mesh;
 
 struct Texture 
 {
@@ -52,27 +47,21 @@ struct RenderableCreateInfo
     MeshID meshID;
 };
 
-//128 bytes large, keeping it this size makes it significantly easier to manage
+typedef glm::mat4x3 float4x3;
+
 struct RenderableData
 {
-    uint16_t textureIDs[8];
-    glm::mat4x4 transform;
-    glm::vec4 tint;
-    glm::vec4 unused0;
-    glm::vec4 unused1;
-};
+    uint16_t textureIDs[6];
+    uint16_t mesh;
+    uint16_t _padding;
 
-struct Renderable 
-{
-    uint32_t index;
-    PipelineID pipelineID;
-    MeshID meshID;
+    glm::vec4 transformRow0;
+    glm::vec4 transformRow1;
+    glm::vec4 transformRow2;
 };
-
 
 struct Scene
 {
-    Renderable * pRenderables;
     RenderableData * pRenderableData;
     uint32_t numRenderables = 0;
 };

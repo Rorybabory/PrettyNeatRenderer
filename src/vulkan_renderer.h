@@ -36,6 +36,8 @@ void GfxCreateDescriptorHeap();
 #endif
 void GfxCreateBindlessDesc();
 void GfxCreateBindlessRenderableBuffer();
+void GfxCreateRenderableIndexBuffer();
+void GfxCreateIndirectBuffer();
 
 void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset);
 
@@ -45,8 +47,7 @@ void GfxUpdateScene(Scene * pScene);
 void GfxSetGlobalData(GlobalData & globalData);
 
 void GfxSetRenderableData(Scene * pScene);
-
-void GfxCreateRenderable(Renderable * pRenderable);
+void GfxSortRenderables(Scene & scene);
 
 void GfxSetMesh(Mesh * mesh);
 

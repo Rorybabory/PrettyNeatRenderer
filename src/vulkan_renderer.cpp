@@ -1,4 +1,5 @@
 
+#include "glm/matrix.hpp"
 #include "glm/trigonometric.hpp"
 #include "resource.h"
 #include "volk.h"
@@ -36,7 +37,7 @@
 #define MAX_TEXTURES 512
 
 const char * projectName = "Rory's Renderer!!!";
-const bool enableValidationLayers = true;
+const bool enableValidationLayers = false;
 const char * validationLayers = "VK_LAYER_KHRONOS_validation";
 
 uint32_t windowWidth = WINDOW_BASE_WIDTH;
@@ -135,6 +136,18 @@ VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
 VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
+
+VkBuffer indirectDataBuffers[FRAMES_IN_FLIGHT];
+VmaAllocation indirectDataAllocations[FRAMES_IN_FLIGHT];
+VmaAllocationInfo indirectDataAllocInfo[FRAMES_IN_FLIGHT];
+
+VkBuffer renderableIndexBuffers[FRAMES_IN_FLIGHT];
+VmaAllocation renderableIndexAllocations[FRAMES_IN_FLIGHT];
+VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
+
+VkDrawIndexedIndirectCommand renderableIndirectCommands[MAX_MESHES];
+
+RenderableData sortedRenderables[MAX_RENDERABLES];
 
 uint32_t renderableCount = 0;
 
@@ -284,24 +297,58 @@ void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo)
         return;
     }
     uint32_t index = scene.numRenderables;
-    Renderable renderable = {};
     RenderableData data = {};
 
-    renderable.index = index;
-    renderable.meshID = createInfo->meshID;
-    renderable.pipelineID = createInfo->pipelineID;
+    Mesh * mesh = GetMesh(createInfo->meshID);
     
-    for (uint32_t i = 0; i < 8; ++i)
+    for (uint32_t i = 0; i < 6; ++i)
     {
         data.textureIDs[i] = createInfo->textureIDs[i];
     }
 
-    data.tint = createInfo->tint;
-    data.transform = createInfo->transform;
+    glm::mat4 transposed = glm::transpose(createInfo->transform);
 
+    data.transformRow0 = transposed[0];
+    data.transformRow1 = transposed[1];
+    data.transformRow2 = transposed[2];
+
+    data.mesh = createInfo->meshID;
     memcpy(&scene.pRenderableData[index], &data, sizeof(RenderableData));
-    memcpy(&scene.pRenderables[index], &renderable, sizeof(Renderable));
     scene.numRenderables++;
+}
+
+extern Mesh meshRegistry[MAX_MESHES];
+extern uint32_t meshRegistryCount;
+void GfxSortRenderables(Scene & scene)
+{
+    uint32_t meshOffsets[MAX_MESHES];
+    
+    for (uint16_t i = 0; i < GetNumMeshes(); ++i)
+    {
+        Mesh * mesh = &meshRegistry[i];
+        mesh->firstInstance = 0;
+        mesh->instanceCount = 0;
+        meshOffsets[i] = 0;
+    }
+    for (uint32_t i = 0; i < renderableCount; ++i)
+    {
+        Mesh * mesh = GetMesh(scene.pRenderableData[i].mesh);
+        mesh->instanceCount++;
+    }
+    uint32_t currentOffset = 0;
+    for (uint32_t i = 0; i < GetNumMeshes(); ++i)
+    {
+        Mesh * mesh = GetMesh(i);
+        meshOffsets[i] = currentOffset;
+        mesh->firstInstance = currentOffset;
+        currentOffset += mesh->instanceCount;
+    }
+    for (uint32_t i = 0; i < renderableCount; ++i)
+    {
+        Mesh * mesh = GetMesh(scene.pRenderableData[i].mesh);
+        sortedRenderables[meshOffsets[scene.pRenderableData[i].mesh]] = scene.pRenderableData[i];
+        meshOffsets[scene.pRenderableData[i].mesh]++;
+    }
 }
 
 void GfxSelectDevice()
@@ -390,8 +437,10 @@ void GfxCreateDevice()
     };
     VkPhysicalDeviceFeatures enabledVk10Features = 
     {
+        .multiDrawIndirect = true,
         .samplerAnisotropy = true,
-        .shaderInt16 = true
+        .shaderInt16 = true,
+        
     };
     
     #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
@@ -1049,7 +1098,6 @@ void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
 void GfxCreateScene(Scene * pScene)
 {
     pScene->pRenderableData = (RenderableData*)malloc(sizeof(RenderableData) * MAX_RENDERABLES);
-    pScene->pRenderables = (Renderable*)malloc(sizeof(Renderable) * MAX_RENDERABLES);
     pScene->numRenderables = 0;
 }
 void GfxUpdateScene(Scene * pScene)
@@ -1103,6 +1151,7 @@ void GfxInit()
     #endif
     GfxCreateBindlessRenderableBuffer();
     GfxCreateBindlessDesc();
+    GfxCreateIndirectBuffer();
 }
 
 int GfxUpdate()
@@ -1189,17 +1238,18 @@ void GfxRenderScene(VkCommandBuffer & cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
     VkDeviceSize vOffset{ 0 };
 
-    vkCmdBindVertexBuffers(cmd, 0, 1, GetMeshBuffer(), &vOffset);
-    vkCmdBindIndexBuffer(cmd, *GetMeshBuffer(), mesh->vertexBufferSize, VK_INDEX_TYPE_UINT32);
+    vkCmdBindVertexBuffers(cmd, 0, 1, GetMeshVertexBuffer(), &vOffset);
+    vkCmdBindIndexBuffer(cmd, *GetMeshIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexed(cmd, mesh->indexCount, renderableCount, 0, 0, 0);
+    vkCmdDrawIndexedIndirect(cmd, indirectDataBuffers[frameIndex], 0, (uint32_t)GetNumMeshes(), sizeof(Mesh));
 }
 
 void GfxSetRenderableData(Scene * pScene)
 {
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
+        memcpy(renderableDataAllocInfo[i].pMappedData, sortedRenderables, sizeof(RenderableData) * pScene->numRenderables);
+        memcpy(indirectDataAllocInfo[i].pMappedData, GetMesh(0), sizeof(Mesh) * GetNumMeshes());
     }
 }
 
@@ -1370,6 +1420,9 @@ void GfxDestroy()
         
         vkDestroyFence(device, fences[i], nullptr);
         vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
+
+        vmaDestroyBuffer(allocator, renderableDataBuffers[i], renderableDataAllocations[i]);
+        vmaDestroyBuffer(allocator, indirectDataBuffers[i], indirectDataAllocations[i]);
     }
     for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
@@ -1383,9 +1436,13 @@ void GfxDestroy()
     vkDestroySurfaceKHR(instance, surface, nullptr);
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayoutRenderables, nullptr);
+    
     vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSetTex);
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
     vkDestroyCommandPool(device, commandPool, nullptr);
+
+
 
     char * statsString;
     vmaBuildStatsString(allocator, &statsString, 1);
@@ -1403,6 +1460,45 @@ void GfxDestroy()
     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, NULL);
     vkDestroyInstance(instance, nullptr);
     glfwDestroyWindow(window);
+}
+
+void GfxCreateRenderableIndexBuffer()
+{
+    VkBufferCreateInfo bufferInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(uint32_t) * MAX_RENDERABLES,
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
+    };
+    VmaAllocationCreateInfo allocCreateInfo = 
+    {
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+    };
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(
+            vmaCreateBuffer(
+                allocator, 
+                &bufferInfo, 
+                &allocCreateInfo, 
+                &renderableDataBuffers[i], 
+                &renderableDataAllocations[i], 
+                &renderableDataAllocInfo[i]
+            )
+        );
+        VkBufferDeviceAddressInfo bdaInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = renderableDataBuffers[i]
+        };
+
+        char allocName[96];
+        sprintf(allocName, "Renderable Indices Allocation: %i", i);
+
+        vmaSetAllocationName(allocator, renderableDataAllocations[i], allocName);
+    }
 }
 
 void GfxCreateBindlessRenderableBuffer()
@@ -1441,6 +1537,45 @@ void GfxCreateBindlessRenderableBuffer()
         sprintf(allocName, "Renderable Data Allocation: %i", i);
 
         vmaSetAllocationName(allocator, renderableDataAllocations[i], allocName);
+    }
+}
+
+void GfxCreateIndirectBuffer()
+{
+    VkBufferCreateInfo bufferInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(Mesh) * MAX_MESHES,
+        .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT
+    };
+    VmaAllocationCreateInfo allocCreateInfo = 
+    {
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+    };
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(
+            vmaCreateBuffer(
+                allocator, 
+                &bufferInfo, 
+                &allocCreateInfo, 
+                &indirectDataBuffers[i], 
+                &indirectDataAllocations[i], 
+                &indirectDataAllocInfo[i]
+            )
+        );
+        VkBufferDeviceAddressInfo bdaInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = indirectDataBuffers[i]
+        };
+
+        char allocName[96];
+        sprintf(allocName, "Indirect Data Allocation: %i", i);
+
+        vmaSetAllocationName(allocator, indirectDataAllocations[i], allocName);
     }
 }
 

@@ -34,10 +34,15 @@ VmaAllocationInfo gpuScratchBufferAllocInfo;
 void * gpuScratchBufferMapped = NULL;
 
 
-VkBuffer meshBuffer;
-VmaAllocation meshBufferAlloc;
-VmaAllocationInfo meshBufferAllocInfo{};
-VkDeviceSize meshBufferSize = 0;
+VkBuffer meshVertexBuffer;
+VmaAllocation meshVertexBufferAlloc;
+VmaAllocationInfo meshVertexBufferAllocInfo{};
+VkDeviceSize meshVertexBufferSize = 0;
+
+VkBuffer meshIndexBuffer;
+VmaAllocation meshIndexBufferAlloc;
+VmaAllocationInfo meshIndexBufferAllocInfo{};
+VkDeviceSize meshIndexBufferSize = 0;
 
 Pipeline pipelineRegistry[MAX_PIPELINES];
 uint32_t pipelineRegistryCount = 0;
@@ -48,16 +53,24 @@ const uint32_t MAX_VERTICES = 1<<18;
 const uint32_t MAX_INDICES = 1<<18;
 const uint64_t MAX_SHADER_SIZE = 1<<20;
 
-
-
 Vertex * cpuScratchVertices = NULL;
 uint32_t * cpuScratchIndices = NULL;
 
 char * scratchShaderSrc = NULL;
 
-VkBuffer * GetMeshBuffer()
+VkBuffer * GetMeshVertexBuffer()
 {
-    return &meshBuffer;
+    return &meshVertexBuffer;
+}
+
+VkBuffer * GetMeshIndexBuffer()
+{
+    return &meshIndexBuffer;
+}
+
+uint32_t GetNumMeshes()
+{
+    return meshRegistryCount;
 }
 
 void AssetLoaderInit()
@@ -91,7 +104,7 @@ void AssetLoaderInit()
     {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = MESH_BUFFER_SIZE,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
     };
 
     VmaAllocationCreateInfo meshBufferAllocCreateInfo
@@ -99,8 +112,23 @@ void AssetLoaderInit()
         .flags = 0,
         .usage = VMA_MEMORY_USAGE_GPU_ONLY
     };
-    VK_CHECK(vmaCreateBuffer(allocator, &meshBufferInfo, &meshBufferAllocCreateInfo, &meshBuffer, &meshBufferAlloc, &meshBufferAllocInfo));
-    vmaSetAllocationName(allocator, meshBufferAlloc, "Mesh Buffer");
+    VK_CHECK(vmaCreateBuffer(allocator, &meshBufferInfo, &meshBufferAllocCreateInfo, &meshVertexBuffer, &meshVertexBufferAlloc, &meshVertexBufferAllocInfo));
+    vmaSetAllocationName(allocator, meshVertexBufferAlloc, "Mesh Vertex Buffer");
+    
+    VkBufferCreateInfo indexBufferInfo = 
+    {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = MESH_BUFFER_SIZE,
+        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+    };
+
+    VmaAllocationCreateInfo indexBufferAllocCreateInfo
+    {
+        .flags = 0,
+        .usage = VMA_MEMORY_USAGE_GPU_ONLY
+    };
+    VK_CHECK(vmaCreateBuffer(allocator, &indexBufferInfo, &indexBufferAllocCreateInfo, &meshIndexBuffer, &meshIndexBufferAlloc, &meshIndexBufferAllocInfo));
+    vmaSetAllocationName(allocator, meshIndexBufferAlloc, "Mesh Index Buffer");
 }
 
 MeshID LoadMesh(MeshLoadInfo * loadInfo)
@@ -136,20 +164,20 @@ MeshID LoadMesh(MeshLoadInfo * loadInfo)
         cpuScratchIndices[i*3+1] = assimpMesh->mFaces[i].mIndices[1];
         cpuScratchIndices[i*3+2] = assimpMesh->mFaces[i].mIndices[2];
     }
-    mesh.vertexCount = assimpMesh->mNumVertices;
     mesh.indexCount = assimpMesh->mNumFaces * 3;
     
-    VkDeviceSize vertexSize = mesh.vertexCount * sizeof(Vertex);
+    VkDeviceSize vertexSize = assimpMesh->mNumVertices * sizeof(Vertex);
     VkDeviceSize indexSize = mesh.indexCount * sizeof(uint32_t);
     aiReleaseImport(scene);
 
+
+    //Copy CPU Scratch Vertex and Index buffers to Mapped GPU Memory
     memcpy(((char*)gpuScratchBufferAllocInfo.pMappedData), cpuScratchVertices, vertexSize);
     memcpy(((char*)gpuScratchBufferAllocInfo.pMappedData)+vertexSize, cpuScratchIndices, indexSize);
-    mesh.vertexBufferSize = vertexSize;
-    mesh.offset = meshBufferSize;
-    
+    mesh.vertexOffset = meshVertexBufferSize / sizeof(Vertex);
+    mesh.firstIndex = meshIndexBufferSize / sizeof(uint32_t);
 
-
+    //Allocate a transfer command buffer
     VkCommandBufferAllocateInfo cmdAllocInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -160,6 +188,8 @@ MeshID LoadMesh(MeshLoadInfo * loadInfo)
     VkCommandBuffer copyCmdBuffer;
     vkAllocateCommandBuffers(device, &cmdAllocInfo, &copyCmdBuffer);
 
+
+    //Record Buffer Transfer Command
     VkCommandBufferBeginInfo beginInfo =
     {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -167,15 +197,21 @@ MeshID LoadMesh(MeshLoadInfo * loadInfo)
     };
     VK_CHECK(vkBeginCommandBuffer(copyCmdBuffer, &beginInfo));
 
-    VkBufferCopy bufferCopy = {
+    VkBufferCopy vertexBufferCopy = {
         .srcOffset = 0,
-        .dstOffset = meshBufferSize,
-        .size = vertexSize + indexSize
+        .dstOffset = meshVertexBufferSize,
+        .size = vertexSize
     };
-    vkCmdCopyBuffer(copyCmdBuffer, gpuScratchBuffer, meshBuffer, 1, &bufferCopy);
-
+    VkBufferCopy indexBufferCopy = {
+        .srcOffset = vertexSize,
+        .dstOffset = meshIndexBufferSize,
+        .size = indexSize
+    };
+    vkCmdCopyBuffer(copyCmdBuffer, gpuScratchBuffer, meshVertexBuffer, 1, &vertexBufferCopy);
+    vkCmdCopyBuffer(copyCmdBuffer, gpuScratchBuffer, meshIndexBuffer, 1, &indexBufferCopy);
     vkEndCommandBuffer(copyCmdBuffer);
 
+    //Submit to our graphics queue
     VkQueue queue = GfxGetQueue();
     VkSubmitInfo submitInfo =
     {
@@ -183,10 +219,12 @@ MeshID LoadMesh(MeshLoadInfo * loadInfo)
         .commandBufferCount = 1,
         .pCommandBuffers = &copyCmdBuffer
     };
+    
     vkQueueSubmit(queue, 1, &submitInfo, nullptr);
 
-
-    meshBufferSize += vertexSize + indexSize;
+    
+    meshVertexBufferSize += vertexSize;
+    meshIndexBufferSize += indexSize;
     meshRegistry[meshRegistryCount++] = mesh;
     return (MeshID)(meshRegistryCount-1);
 }
@@ -518,7 +556,8 @@ PipelineID LoadPipeline(PipelineLoadInfo * pipelineInfo)
     };
     VkPipelineRasterizationStateCreateInfo rasterizationState{
          .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-         .lineWidth = 1.0f
+         .cullMode = VK_CULL_MODE_BACK_BIT,
+         .lineWidth = 1.0f,
     };
     VkPipelineMultisampleStateCreateInfo multisampleState{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -576,5 +615,6 @@ void AssetLoaderDestroy()
     free(cpuScratchVertices);
     free(cpuScratchIndices);
     vmaDestroyBuffer(allocator, gpuScratchBuffer, gpuScratchBufferAlloc);
-    vmaDestroyBuffer(allocator, meshBuffer, meshBufferAlloc);
+    vmaDestroyBuffer(allocator, meshVertexBuffer, meshVertexBufferAlloc);
+    vmaDestroyBuffer(allocator, meshIndexBuffer, meshIndexBufferAlloc);
 }
