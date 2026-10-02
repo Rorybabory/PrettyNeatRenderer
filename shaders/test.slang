@@ -1,12 +1,13 @@
 
-struct VSInput {
+struct VSInput
+{
     float3 Pos;
     float3 Normal;
     float2 UV;
 };
 
-
-struct GlobalData {
+struct GlobalData
+{
     float4x4 projection;
     float4x4 view;
     float4 lightPos;
@@ -25,7 +26,8 @@ struct RenderableData
     float4 transformRow2;
 };
 
-struct VSOutput {
+struct VSOutput
+{
     float4 Pos : SV_POSITION;
     float3 Normal;
     float2 UV;
@@ -35,19 +37,23 @@ struct VSOutput {
     uint32_t textureID;
 };
 
-[[vk::binding(0, 0)]] Sampler2D g_textures[512];
-[[vk::binding(0, 1)]] StructuredBuffer<RenderableData> renderableData;
+[[vk::binding(0, 0)]]
+Sampler2D g_textures[512];
+[[vk::binding(0, 1)]]
+StructuredBuffer<RenderableData> renderableData;
+[[vk::binding(0, 2)]]
+StructuredBuffer<uint32_t> renderableIndices;
 
 [shader("vertex")]
-VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex : SV_VulkanInstanceID) 
+VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex: SV_VulkanInstanceID)
 {
     VSOutput output;
+    RenderableData renderData = renderableData[renderableIndices[instanceIndex]];
     float4x4 modelMat4 = float4x4(
-        renderableData[instanceIndex].transformRow0,
-        renderableData[instanceIndex].transformRow1,
-        renderableData[instanceIndex].transformRow2,
-        float4(0.0f, 0.0f, 0.0f, 1.0f)
-    );
+        renderData.transformRow0,
+        renderData.transformRow1,
+        renderData.transformRow2,
+        float4(0.0f, 0.0f, 0.0f, 1.0f));
     output.Normal = mul((float3x3)mul(globalData->view, modelMat4), input.Normal);
     output.UV = input.UV;
     output.Pos = mul(globalData->projection, mul(globalData->view, mul(modelMat4, float4(input.Pos.xyz, 1.0))));
@@ -56,12 +62,12 @@ VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex 
     float4 fragPos = mul(mul(globalData->view, modelMat4), float4(input.Pos.xyz, 1.0));
     output.LightVec = globalData->lightPos.xyz - fragPos.xyz;
     output.ViewVec = -fragPos.xyz;
-    output.textureID = renderableData[instanceIndex].textureIDs_0_3.x;
+    output.textureID = renderData.textureIDs_0_3.x;
     return output;
 }
 
 [shader("fragment")]
-float4 main(VSOutput input) 
+float4 main(VSOutput input)
 {
     // Phong lighting
     float3 N = normalize(input.Normal);

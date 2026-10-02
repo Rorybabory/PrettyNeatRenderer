@@ -20,7 +20,7 @@ struct GfxInstance;
 
 void GfxInit();
 
-void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo);
+void GfxSceneAddRenderable(Scene &scene, RenderableCreateInfo *createInfo);
 glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular);
 
 int GfxUpdate();
@@ -30,7 +30,6 @@ int GfxRender();
 void GfxPreDestroy();
 void GfxDestroy();
 
-
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxCreateDescriptorHeap();
 #endif
@@ -39,27 +38,27 @@ void GfxCreateBindlessRenderableBuffer();
 void GfxCreateRenderableIndexBuffer();
 void GfxCreateIndirectBuffer();
 
-void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset);
+void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 
-void GfxCreateScene(Scene * pScene);
-void GfxUpdateScene(Scene * pScene);
+void GfxCreateScene(Scene *pScene);
+void GfxUpdateScene(Scene *pScene);
 
-void GfxSetGlobalData(GlobalData & globalData);
+void GfxSetGlobalData(GlobalData &globalData);
 
-void GfxSetRenderableData(Scene * pScene);
-void GfxSortRenderables(Scene & scene);
+void GfxSetRenderableData(Scene *pScene);
+void GfxSortRenderables(Scene &scene);
 
-void GfxSetMesh(Mesh * mesh);
+void GfxSetMesh(Mesh *mesh);
 
-void GfxSetPipeline(Pipeline * _pipeline);
+void GfxSetPipeline(Pipeline *_pipeline);
 
 float GfxGetAspectRatio();
 
-
-void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT ** bindingMappings, uint32_t * bindingCount);
+void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT **bindingMappings, uint32_t *bindingCount);
 VkFormat GfxGetDepthFormat();
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures();
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables();
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderableIndices();
 
 VkCommandPool GfxGetCommandPool();
 

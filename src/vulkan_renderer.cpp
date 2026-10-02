@@ -36,13 +36,12 @@
 
 #define MAX_TEXTURES 512
 
-const char * projectName = "Rory's Renderer!!!";
+const char *projectName = "Rory's Renderer!!!";
 const bool enableValidationLayers = false;
-const char * validationLayers = "VK_LAYER_KHRONOS_validation";
+const char *validationLayers = "VK_LAYER_KHRONOS_validation";
 
 uint32_t windowWidth = WINDOW_BASE_WIDTH;
 uint32_t windowHeight = WINDOW_BASE_HEIGHT;
-
 
 VkInstance instance;
 VkDevice device;
@@ -51,14 +50,14 @@ VkQueue graphicsQueue;
 uint32_t queueFamily = 0;
 VmaAllocator allocator;
 
-GLFWwindow * window;
+GLFWwindow *window;
 VkSurfaceKHR surface;
 VkSwapchainKHR swapchain;
 VkSurfaceCapabilitiesKHR surfaceCaps = {};
 VkDebugUtilsMessengerEXT debugMessenger;
 
-VkImage * swapchainImages = NULL;
-VkImageView * swapchainImageViews = NULL;
+VkImage *swapchainImages = NULL;
+VkImageView *swapchainImageViews = NULL;
 uint32_t swapchainImageCount = 0;
 VkImage depthImage;
 VkImageView depthImageView;
@@ -67,28 +66,26 @@ VmaAllocation depthImageAllocation;
 VkCommandPool commandPool;
 VkCommandBuffer commandBuffers[FRAMES_IN_FLIGHT];
 
-//Sync Objects
+// Sync Objects
 VkSemaphore imageAcquiredSemaphores[FRAMES_IN_FLIGHT];
-VkSemaphore * renderCompleteSemaphores;
+VkSemaphore *renderCompleteSemaphores;
 VkFence fences[FRAMES_IN_FLIGHT];
 
-
-Pipeline * pipeline = NULL;
-Pipeline * pipelineLayout = NULL;
-Mesh * mesh = NULL;
+Pipeline *pipeline = NULL;
+Pipeline *pipelineLayout = NULL;
+Mesh *mesh = NULL;
 
 uint32_t frameIndex = 0;
 uint32_t imageIndex = 0;
 
-
 struct PushConstants
 {
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     uint32_t frameIndex;
     uint32_t unused[3];
-    #else
-    
-    #endif
+#else
+
+#endif
 };
 
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
@@ -122,7 +119,7 @@ struct DescriptorHeapData
     VkDeviceAddress samplerHeapDeviceAddress;
 };
 
-//Descriptors
+// Descriptors
 DescriptorHeapData heapData;
 #else
 
@@ -133,6 +130,10 @@ VkDescriptorSet descriptorSetTex;
 
 VkDescriptorSetLayout descriptorSetLayoutRenderables;
 VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
+
+VkDescriptorSetLayout descriptorSetLayoutRenderableIndices;
+VkDescriptorSet descriptorSetsRenderableIndices[FRAMES_IN_FLIGHT];
+
 VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
@@ -147,13 +148,13 @@ VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
 
 VkDrawIndexedIndirectCommand renderableIndirectCommands[MAX_MESHES];
 
-RenderableData sortedRenderables[MAX_RENDERABLES];
+uint32_t renderableIndices[MAX_RENDERABLES];
 
 uint32_t renderableCount = 0;
 
 #endif
 
-struct GlobalDataBuffer 
+struct GlobalDataBuffer
 {
     VkBuffer buffer;
     VmaAllocation alloc;
@@ -163,17 +164,14 @@ struct GlobalDataBuffer
 
 GlobalDataBuffer globalDataBuffers[FRAMES_IN_FLIGHT];
 
-
-//Properties and Limits
+// Properties and Limits
 VkPhysicalDeviceDescriptorHeapPropertiesEXT heapProperties;
-
-
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-    void* pUserData) 
+    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+    void *pUserData)
 {
 
     spdlog::error("validation layer: {}", pCallbackData->pMessage);
@@ -181,26 +179,32 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
-VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) 
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger)
 {
-    PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (func != NULL) {
+    PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+    if (func != NULL)
+    {
         return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-    } else {
+    }
+    else
+    {
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 }
 
-void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
-    PFN_vkDestroyDebugUtilsMessengerEXT func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-    if (func != NULL) {
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator)
+{
+    PFN_vkDestroyDebugUtilsMessengerEXT func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+    if (func != NULL)
+    {
         func(instance, debugMessenger, pAllocator);
     }
 }
 
 void GfxSetupDebugMessanger()
 {
-    if (!enableValidationLayers) return;
+    if (!enableValidationLayers)
+        return;
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -211,51 +215,53 @@ void GfxSetupDebugMessanger()
     CreateDebugUtilsMessengerEXT(instance, &createInfo, NULL, &debugMessenger);
 }
 
-void GfxSetPipeline(Pipeline * _pipeline)
+void GfxSetPipeline(Pipeline *_pipeline)
 {
     pipeline = _pipeline;
 }
-void GfxSetMesh(Mesh * m)
+void GfxSetMesh(Mesh *m)
 {
     mesh = m;
 }
 void GfxCreateInstance()
 {
     volkInitialize();
-    VkApplicationInfo appInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = projectName,
-        .apiVersion = VK_API_VERSION_1_3
-    };
+    VkApplicationInfo appInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+            .pApplicationName = projectName,
+            .apiVersion = VK_API_VERSION_1_3};
 
     uint32_t instanceExtensionCountGlfw = 0;
     uint32_t instanceExtensionCount = 0;
-    const char ** glfwExtensions = glfwGetRequiredInstanceExtensions(&instanceExtensionCountGlfw);
+    const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&instanceExtensionCountGlfw);
     instanceExtensionCount = instanceExtensionCountGlfw + 1;
-    char ** instanceExtension = (char **) malloc(sizeof(char *) * instanceExtensionCount);
-    
+    char **instanceExtension = (char **)malloc(sizeof(char *) * instanceExtensionCount);
+
     for (uint32_t i = 0; i < instanceExtensionCount; ++i)
     {
-        instanceExtension[i] = (char *) malloc(sizeof(char) * 128);
+        instanceExtension[i] = (char *)malloc(sizeof(char) * 128);
     }
 
     for (uint32_t i = 0; i < instanceExtensionCountGlfw; ++i)
     {
-        strcpy( instanceExtension[i], glfwExtensions[i]);
+        strcpy(instanceExtension[i], glfwExtensions[i]);
     }
-    strcpy( instanceExtension[instanceExtensionCountGlfw], VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    strcpy(instanceExtension[instanceExtensionCountGlfw], VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
     createInfo.enabledExtensionCount = instanceExtensionCount;
-    createInfo.ppEnabledExtensionNames = (const char * const *)instanceExtension;    
+    createInfo.ppEnabledExtensionNames = (const char *const *)instanceExtension;
 
-    if (enableValidationLayers) {
+    if (enableValidationLayers)
+    {
         createInfo.enabledLayerCount = 1;
         createInfo.ppEnabledLayerNames = &validationLayers;
-    } else {
+    }
+    else
+    {
         createInfo.enabledLayerCount = 0;
     }
 
@@ -266,7 +272,6 @@ void GfxCreateInstance()
     }
     VK_CHECK(vkCreateInstance(&createInfo, 0, &instance));
     spdlog::info("Vulkan Instance Created");
-
 
     for (uint32_t i = 0; i < instanceExtensionCount; ++i)
     {
@@ -279,28 +284,28 @@ void GfxCreateInstance()
 glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular)
 {
     glm::mat4 model = glm::identity<glm::mat4>();
-    model =     glm::translate(model, position);
+    model = glm::translate(model, position);
 
-    model =     glm::scale(model, scale);
-   
-    model =     glm::rotate(model,  glm::degrees(rotationEular.x), glm::vec3(1.0f, 0.0f, 0.0f));
-    model =     glm::rotate(model,  glm::degrees(rotationEular.y), glm::vec3(0.0f, 1.0f, 0.0f));
-    model =     glm::rotate(model,  glm::degrees(rotationEular.z), glm::vec3(0.0f, 0.0f, 1.0f));
+    model = glm::scale(model, scale);
+
+    model = glm::rotate(model, glm::degrees(rotationEular.x), glm::vec3(1.0f, 0.0f, 0.0f));
+    model = glm::rotate(model, glm::degrees(rotationEular.y), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, glm::degrees(rotationEular.z), glm::vec3(0.0f, 0.0f, 1.0f));
 
     return model;
 }
 
-void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo)
+void GfxSceneAddRenderable(Scene &scene, RenderableCreateInfo *createInfo)
 {
-    if (scene.numRenderables >= MAX_RENDERABLES-1)
+    if (scene.numRenderables >= MAX_RENDERABLES - 1)
     {
         return;
     }
     uint32_t index = scene.numRenderables;
     RenderableData data = {};
 
-    Mesh * mesh = GetMesh(createInfo->meshID);
-    
+    Mesh *mesh = GetMesh(createInfo->meshID);
+
     for (uint32_t i = 0; i < 6; ++i)
     {
         data.textureIDs[i] = createInfo->textureIDs[i];
@@ -319,34 +324,33 @@ void GfxSceneAddRenderable(Scene & scene, RenderableCreateInfo * createInfo)
 
 extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
-void GfxSortRenderables(Scene & scene)
+void GfxSortRenderables(Scene &scene)
 {
     uint32_t meshOffsets[MAX_MESHES];
-    
+    memset(meshOffsets, 0, sizeof(uint32_t) * MAX_MESHES);
+
     for (uint16_t i = 0; i < GetNumMeshes(); ++i)
     {
-        Mesh * mesh = &meshRegistry[i];
-        mesh->firstInstance = 0;
-        mesh->instanceCount = 0;
-        meshOffsets[i] = 0;
+        meshRegistry[i].firstInstance = 0;
+        meshRegistry[i].instanceCount = 0;
     }
     for (uint32_t i = 0; i < renderableCount; ++i)
     {
-        Mesh * mesh = GetMesh(scene.pRenderableData[i].mesh);
+        Mesh *mesh = GetMesh(scene.pRenderableData[i].mesh);
         mesh->instanceCount++;
     }
     uint32_t currentOffset = 0;
     for (uint32_t i = 0; i < GetNumMeshes(); ++i)
     {
-        Mesh * mesh = GetMesh(i);
+        Mesh *mesh = GetMesh(i);
         meshOffsets[i] = currentOffset;
         mesh->firstInstance = currentOffset;
         currentOffset += mesh->instanceCount;
     }
     for (uint32_t i = 0; i < renderableCount; ++i)
     {
-        Mesh * mesh = GetMesh(scene.pRenderableData[i].mesh);
-        sortedRenderables[meshOffsets[scene.pRenderableData[i].mesh]] = scene.pRenderableData[i];
+        Mesh *mesh = GetMesh(scene.pRenderableData[i].mesh);
+        renderableIndices[meshOffsets[scene.pRenderableData[i].mesh]] = i;
         meshOffsets[scene.pRenderableData[i].mesh]++;
     }
 }
@@ -360,21 +364,20 @@ void GfxSelectDevice()
         spdlog::error("No Vulkan Capable Devices");
         abort();
     }
-    VkPhysicalDevice * devices = (VkPhysicalDevice*)malloc(deviceCount * sizeof(VkPhysicalDevice));
+    VkPhysicalDevice *devices = (VkPhysicalDevice *)malloc(deviceCount * sizeof(VkPhysicalDevice));
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &deviceCount, devices));
     physicalDevice = devices[0];
     free(devices);
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     heapProperties = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT
-    };
-    #endif
-    VkPhysicalDeviceProperties2 deviceProperties = 
-    { 
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
-        .pNext = &heapProperties
-        #endif
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};
+#endif
+    VkPhysicalDeviceProperties2 deviceProperties =
+        {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+            .pNext = &heapProperties
+#endif
     };
     vkGetPhysicalDeviceProperties2(physicalDevice, &deviceProperties);
     spdlog::info("Selected device: {}", deviceProperties.properties.deviceName);
@@ -384,7 +387,7 @@ void GfxCreateDevice()
 {
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
-    VkQueueFamilyProperties * queueFamilies = (VkQueueFamilyProperties*) malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
     for (size_t i = 0; i < queueFamilyCount; ++i)
     {
@@ -397,21 +400,20 @@ void GfxCreateDevice()
     const float qfProperties = 1.0f;
 
     VkDeviceQueueCreateInfo queueInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = queueFamily,
-        .queueCount = 1,
-        .pQueuePriorities = &qfProperties
-    };
-    const char * deviceExtensions[] = {
+        {
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = queueFamily,
+            .queueCount = 1,
+            .pQueuePriorities = &qfProperties};
+    const char *deviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        
-        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
         VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME
-        #endif
+#endif
     };
-    
+
     VkPhysicalDeviceVulkan11Features enabledVk11Features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .pNext = NULL, // End of the chain
@@ -432,60 +434,55 @@ void GfxCreateDevice()
         .bufferDeviceAddress = true,
         .bufferDeviceAddressCaptureReplay = true,
     };
-    VkPhysicalDeviceVulkan13Features enabledVk13Features = 
-    {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = &enabledVk12Features,
-        .synchronization2 = true,
-        .dynamicRendering = true,
+    VkPhysicalDeviceVulkan13Features enabledVk13Features =
+        {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .pNext = &enabledVk12Features,
+            .synchronization2 = true,
+            .dynamicRendering = true,
     };
-    VkPhysicalDeviceFeatures enabledVk10Features = 
-    {
-        .multiDrawIndirect = true,
-        .samplerAnisotropy = true,
-        .shaderInt16 = true,
-        
+    VkPhysicalDeviceFeatures enabledVk10Features =
+        {
+            .multiDrawIndirect = true,
+            .samplerAnisotropy = true,
+            .shaderInt16 = true,
+
     };
-    
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
-    VkPhysicalDeviceVulkan14Features enabledVk14Features = 
-    {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-        .pNext = &enabledVk13Features
-    };
-    
-    
-    VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptorHeapFeatures = 
-    {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT,
-        .pNext = &enabledVk14Features,
-        .descriptorHeap = true,
-        .descriptorHeapCaptureReplay = true
-    };
-    #endif
+
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+    VkPhysicalDeviceVulkan14Features enabledVk14Features =
+        {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+            .pNext = &enabledVk13Features};
+
+    VkPhysicalDeviceDescriptorHeapFeaturesEXT descriptorHeapFeatures =
+        {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT,
+            .pNext = &enabledVk14Features,
+            .descriptorHeap = true,
+            .descriptorHeapCaptureReplay = true};
+#endif
     VkPhysicalDeviceFeatures2 features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         .pNext = &descriptorHeapFeatures,
-        #else
+#else
         .pNext = &enabledVk13Features,
-        #endif
-        .features = enabledVk10Features
-    };
+#endif
+        .features = enabledVk10Features};
     VkDeviceCreateInfo deviceInfo = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = &features,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queueInfo,
-        #ifndef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifndef DESCRIPTOR_HEAP_EXPERIMENTS
         .enabledExtensionCount = 1,
-        #else
+#else
         .enabledExtensionCount = 3,
-        #endif
+#endif
 
         .ppEnabledExtensionNames = &deviceExtensions[0],
-        .pEnabledFeatures = NULL
-    };
+        .pEnabledFeatures = NULL};
     spdlog::info("Number of enabled extensions: {}", deviceInfo.enabledExtensionCount);
     for (uint32_t i = 0; i < deviceInfo.enabledExtensionCount; ++i)
     {
@@ -547,20 +544,18 @@ void GfxCreateVMA()
     vulkanFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
     vulkanFunctions.vkBindImageMemory2KHR = vkBindImageMemory2;
     vulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
-    
+
     vulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
     vulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
 
     VmaAllocatorCreateInfo allocatorInfo =
-    {
-        .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
-        .physicalDevice = physicalDevice,
-        .device = device,
-        .pVulkanFunctions = &vulkanFunctions,
-        .instance = instance,
-        .vulkanApiVersion = VK_API_VERSION_1_3
-    };
-
+        {
+            .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+            .physicalDevice = physicalDevice,
+            .device = device,
+            .pVulkanFunctions = &vulkanFunctions,
+            .instance = instance,
+            .vulkanApiVersion = VK_API_VERSION_1_3};
 
     VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator));
     spdlog::info("Created VMA Allocator");
@@ -573,45 +568,41 @@ void GfxCreateSwapchain()
     {
         swapchainExtent = {
             windowWidth,
-            windowHeight
-        };
+            windowHeight};
     }
-    const VkFormat imageFormat = { VK_FORMAT_B8G8R8A8_SRGB };
+    const VkFormat imageFormat = {VK_FORMAT_B8G8R8A8_SRGB};
     VkSwapchainCreateInfoKHR swapchainCI = {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface,
         .minImageCount = surfaceCaps.minImageCount,
         .imageFormat = imageFormat,
         .imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
-        .imageExtent = {.width = swapchainExtent.width, .height = swapchainExtent.height },
+        .imageExtent = {.width = swapchainExtent.width, .height = swapchainExtent.height},
         .imageArrayLayers = 1,
         .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = VK_PRESENT_MODE_FIFO_KHR
-    };
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR};
     VK_CHECK(vkCreateSwapchainKHR(device, &swapchainCI, NULL, &swapchain));
 
     VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL));
-    swapchainImages = (VkImage*) malloc(swapchainImageCount * sizeof(VkImage));
+    swapchainImages = (VkImage *)malloc(swapchainImageCount * sizeof(VkImage));
     VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages));
-    swapchainImageViews = (VkImageView*) malloc(swapchainImageCount * sizeof(VkImageView));
+    swapchainImageViews = (VkImageView *)malloc(swapchainImageCount * sizeof(VkImageView));
 
     for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
-        VkImageViewCreateInfo viewInfo = 
-        {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = swapchainImages[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = imageFormat,
-            .subresourceRange = 
+        VkImageViewCreateInfo viewInfo =
             {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .levelCount = 1,
-                .layerCount = 1
-            }
-        };
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = swapchainImages[i],
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                .format = imageFormat,
+                .subresourceRange =
+                    {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .levelCount = 1,
+                        .layerCount = 1}};
         VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &swapchainImageViews[i]));
     }
 
@@ -621,7 +612,7 @@ void GfxCreateSwapchain()
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = depthFormat,
-        .extent = {.width = windowWidth, .height = windowHeight, .depth = 1 },
+        .extent = {.width = windowWidth, .height = windowHeight, .depth = 1},
         .mipLevels = 1,
         .arrayLayers = 1,
         .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -632,17 +623,15 @@ void GfxCreateSwapchain()
 
     VmaAllocationCreateInfo allocCI = {
         .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO
-    };
+        .usage = VMA_MEMORY_USAGE_AUTO};
     VK_CHECK(vmaCreateImage(allocator, &depthImageCI, &allocCI, &depthImage, &depthImageAllocation, NULL));
     vmaSetAllocationName(allocator, depthImageAllocation, "depth image");
-    VkImageViewCreateInfo depthViewCI = { 
+    VkImageViewCreateInfo depthViewCI = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = depthImage,
         .viewType = VK_IMAGE_VIEW_TYPE_2D,
         .format = depthFormat,
-        .subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
-    };
+        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1}};
     VK_CHECK(vkCreateImageView(device, &depthViewCI, NULL, &depthImageView));
 }
 
@@ -660,7 +649,7 @@ void GfxDestroySwapchain()
     vkDestroyImageView(device, depthImageView, nullptr);
 }
 
-void GfxFramebufferResize(GLFWwindow * window, int width, int height)
+void GfxFramebufferResize(GLFWwindow *window, int width, int height)
 {
     vkDeviceWaitIdle(device);
 
@@ -675,7 +664,7 @@ void GfxCreateWindow()
 {
     glfwInit();
     glfwInitVulkanLoader(vkGetInstanceProcAddr);
-    
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
     window = glfwCreateWindow(windowWidth, windowHeight, projectName, NULL, NULL);
@@ -693,45 +682,41 @@ void GfxCreateSurface()
     VK_CHECK(glfwCreateWindowSurface(instance, window, NULL, &surface));
 
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCaps));
-    
+
     spdlog::info("Created Surface");
 }
 
-float GfxGetAspectRatio() {
-    return (float)windowWidth/(float)windowHeight;
+float GfxGetAspectRatio()
+{
+    return (float)windowWidth / (float)windowHeight;
 }
 
-void GfxCreateShaderData() 
+void GfxCreateShaderData()
 {
-    VkBufferCreateInfo bufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(GlobalData),
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-    };
-    VmaAllocationCreateInfo allocCreateInfo = 
-    {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO
-    };
+    VkBufferCreateInfo bufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(GlobalData),
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
+    VmaAllocationCreateInfo allocCreateInfo =
+        {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(
             vmaCreateBuffer(
-                allocator, 
-                &bufferInfo, 
-                &allocCreateInfo, 
-                &globalDataBuffers[i].buffer, 
-                &globalDataBuffers[i].alloc, 
-                &globalDataBuffers[i].allocInfo
-            )
-        );
+                allocator,
+                &bufferInfo,
+                &allocCreateInfo,
+                &globalDataBuffers[i].buffer,
+                &globalDataBuffers[i].alloc,
+                &globalDataBuffers[i].allocInfo));
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = globalDataBuffers[i].buffer
-        };
+            .buffer = globalDataBuffers[i].buffer};
         globalDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
 
         char allocName[96];
@@ -744,18 +729,16 @@ void GfxCreateShaderData()
 void GfxCreateSyncObjects()
 {
     VkSemaphoreCreateInfo semaphoreInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
-    };
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fenceInfo{
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT
-    };
+        .flags = VK_FENCE_CREATE_SIGNALED_BIT};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &fences[i]));
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAcquiredSemaphores[i]));
     }
-    renderCompleteSemaphores = (VkSemaphore*) malloc(sizeof(VkSemaphore) * swapchainImageCount);
+    renderCompleteSemaphores = (VkSemaphore *)malloc(sizeof(VkSemaphore) * swapchainImageCount);
     for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
         VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderCompleteSemaphores[i]));
@@ -767,15 +750,13 @@ void GfxCreateCommandBuffer()
     VkCommandPoolCreateInfo commandPoolInfo = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        .queueFamilyIndex = queueFamily
-    };
+        .queueFamilyIndex = queueFamily};
     VK_CHECK(vkCreateCommandPool(device, &commandPoolInfo, nullptr, &commandPool));
 
     VkCommandBufferAllocateInfo cmdBufferAllocInfo = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = commandPool,
-        .commandBufferCount = FRAMES_IN_FLIGHT
-    };
+        .commandBufferCount = FRAMES_IN_FLIGHT};
     VK_CHECK(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &commandBuffers[0]));
 }
 
@@ -791,35 +772,31 @@ VkQueue GfxGetQueue()
 
 void GfxCreateDescriptorPool()
 {
-    VkDescriptorPoolSize poolSizes[] = 
-    {
+    VkDescriptorPoolSize poolSizes[] =
         {
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = MAX_TEXTURES
-        }, 
+            {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+             .descriptorCount = MAX_TEXTURES},
+            {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+             .descriptorCount = MAX_RENDERABLES * 8},
+    };
+    VkDescriptorPoolCreateInfo descPoolCreateInfo =
         {
-            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = MAX_RENDERABLES * 2
-        }, 
-    };
-    VkDescriptorPoolCreateInfo descPoolCreateInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
-        .maxSets = MAX_DESCRIPTOR_SETS,
-        .poolSizeCount = 2,
-        .pPoolSizes = poolSizes
-    };
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+            .maxSets = MAX_DESCRIPTOR_SETS * FRAMES_IN_FLIGHT,
+            .poolSizeCount = 2,
+            .pPoolSizes = poolSizes};
     VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descriptorPool));
 }
 VkDeviceSize alignUp(VkDeviceSize value, VkDeviceSize alignment)
 {
-    if (alignment == 0) {
+    if (alignment == 0)
+    {
         return value;
     }
     return (value + alignment - 1) / alignment * alignment;
 }
-VkDeviceSize addDescriptorToHeap(VkDeviceSize & cursor, VkDeviceSize size, VkDeviceSize alignment)
+VkDeviceSize addDescriptorToHeap(VkDeviceSize &cursor, VkDeviceSize size, VkDeviceSize alignment)
 {
     cursor = alignUp(cursor, alignment);
     VkDeviceSize offset = cursor;
@@ -837,116 +814,89 @@ void GfxCreateDescriptorHeap()
         [Textures]
     */
     VkDeviceSize heapCursor = heapProperties.minResourceHeapReservedRange;
-    heapData.alignment = glm::max(glm::max(heapProperties.bufferDescriptorAlignment, 
-                                      heapProperties.samplerDescriptorAlignment),
-                                      heapProperties.imageDescriptorAlignment);
+    heapData.alignment = glm::max(glm::max(heapProperties.bufferDescriptorAlignment,
+                                           heapProperties.samplerDescriptorAlignment),
+                                  heapProperties.imageDescriptorAlignment);
     VkDeviceSize ubDescSize = vkGetPhysicalDeviceDescriptorSizeEXT(physicalDevice, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     VkDeviceSize imageDescSize = vkGetPhysicalDeviceDescriptorSizeEXT(physicalDevice, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
     VkDeviceSize samplerDescSize = vkGetPhysicalDeviceDescriptorSizeEXT(physicalDevice, VK_DESCRIPTOR_TYPE_SAMPLER);
     heapData.perFrameOffset = addDescriptorToHeap(
-            heapCursor, 
-            ubDescSize, 
-            heapData.alignment
-    );
+        heapCursor,
+        ubDescSize,
+        heapData.alignment);
     addDescriptorToHeap(
-            heapCursor, 
-            ubDescSize, 
-            heapData.alignment
-    );
+        heapCursor,
+        ubDescSize,
+        heapData.alignment);
     heapData.textureOffset = addDescriptorToHeap(
-        heapCursor, 
-        imageDescSize * MAX_TEXTURES, 
-        heapData.alignment
-    );
+        heapCursor,
+        imageDescSize * MAX_TEXTURES,
+        heapData.alignment);
     heapData.resourceHeapSize = heapCursor;
 
     heapCursor = heapProperties.minResourceHeapReservedRange;
     heapData.samplerLinearOffset = addDescriptorToHeap(
-        heapCursor, 
+        heapCursor,
         samplerDescSize,
         heapData.alignment);
     heapData.samplerNearestOffset = addDescriptorToHeap(
-        heapCursor, 
+        heapCursor,
         samplerDescSize,
         heapData.alignment);
-        
-    heapData.samplerHeapSize = heapCursor;
-    
-    VkBufferCreateInfo heapBufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = heapData.resourceHeapSize,
-        .usage = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR
-    };
 
-    VmaAllocationCreateInfo heapBufferAllocCreateInfo
-    {
-        .flags =    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                    VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO
-    };
+    heapData.samplerHeapSize = heapCursor;
+
+    VkBufferCreateInfo heapBufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = heapData.resourceHeapSize,
+            .usage = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR};
+
+    VmaAllocationCreateInfo heapBufferAllocCreateInfo{
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO};
     VK_CHECK(vmaCreateBuffer(allocator, &heapBufferInfo, &heapBufferAllocCreateInfo, &heapData.resourceHeapBuffer, &heapData.resourceHeapAllocation, &heapData.resourceHeapAllocInfo));
     vmaSetAllocationName(allocator, heapData.resourceHeapAllocation, "Resource Heap Buffer");
 
     VkBufferDeviceAddressInfo bdaInfo = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-        .buffer = heapData.resourceHeapBuffer
-    };
+        .buffer = heapData.resourceHeapBuffer};
     heapData.resourceHeapDeviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
 
     VkDeviceAddressRangeEXT deviceAddrRanges[2] = {
-        {
-            .address = globalDataBuffers[0].deviceAddress,
-            .size = sizeof(ShaderData)
-        },
-        {
-            .address = globalDataBuffers[1].deviceAddress,
-            .size = sizeof(ShaderData)
-        }
-    };
+        {.address = globalDataBuffers[0].deviceAddress,
+         .size = sizeof(ShaderData)},
+        {.address = globalDataBuffers[1].deviceAddress,
+         .size = sizeof(ShaderData)}};
     VkResourceDescriptorInfoEXT resourceDescriptorInfos[2] = {
-        //Per Frame 0 
+        // Per Frame 0
         {
             .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .data = {
-                .pAddressRange = &deviceAddrRanges[0]
-            }
-        },
-        //Per Frame 1 
-        {
-            .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
-            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,     
-            .data = {
-                .pAddressRange = &deviceAddrRanges[1]
-            }
-        }
-        
+                .pAddressRange = &deviceAddrRanges[0]}},
+        // Per Frame 1
+        {.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT, .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .data = {.pAddressRange = &deviceAddrRanges[1]}}
+
     };
     VkHostAddressRangeEXT addrRanges[2] = {
-        {(uint8_t*)heapData.resourceHeapAllocInfo.pMappedData + heapData.perFrameOffset, ubDescSize},
-        {(uint8_t*)heapData.resourceHeapAllocInfo.pMappedData + heapData.perFrameOffset + heapData.alignment, ubDescSize}
-    };
+        {(uint8_t *)heapData.resourceHeapAllocInfo.pMappedData + heapData.perFrameOffset, ubDescSize},
+        {(uint8_t *)heapData.resourceHeapAllocInfo.pMappedData + heapData.perFrameOffset + heapData.alignment, ubDescSize}};
     vkWriteResourceDescriptorsEXT(device, 2, resourceDescriptorInfos, addrRanges);
 
-    
+    VkBufferCreateInfo samplerHeapBufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = heapData.samplerHeapSize,
+            .usage = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR};
 
-
-    VkBufferCreateInfo samplerHeapBufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = heapData.samplerHeapSize,
-        .usage = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR
-    };
-
-    VmaAllocationCreateInfo samplerHeapBufferAllocCreateInfo
-    {
-        .flags =    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                    VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO
-    };
+    VmaAllocationCreateInfo samplerHeapBufferAllocCreateInfo{
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO};
     VK_CHECK(vmaCreateBuffer(allocator, &samplerHeapBufferInfo, &samplerHeapBufferAllocCreateInfo, &heapData.samplerHeapBuffer, &heapData.samplerHeapAllocation, &heapData.samplerHeapAllocInfo));
     vmaSetAllocationName(allocator, heapData.samplerHeapAllocation, "Sampler Heap Buffer");
 
@@ -954,88 +904,70 @@ void GfxCreateDescriptorHeap()
     heapData.samplerHeapDeviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
 
     VkSamplerCreateInfo samplerInfos[] = {
-        {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .maxLod = VK_LOD_CLAMP_NONE
-        },
-        {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_NEAREST,
-            .minFilter = VK_FILTER_NEAREST,
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .maxLod = VK_LOD_CLAMP_NONE
-        }
-    };
+        {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+         .magFilter = VK_FILTER_LINEAR,
+         .minFilter = VK_FILTER_LINEAR,
+         .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+         .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .maxLod = VK_LOD_CLAMP_NONE},
+        {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+         .magFilter = VK_FILTER_NEAREST,
+         .minFilter = VK_FILTER_NEAREST,
+         .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+         .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+         .maxLod = VK_LOD_CLAMP_NONE}};
 
-    VkHostAddressRangeEXT samplerRanges[] = 
-    {
+    VkHostAddressRangeEXT samplerRanges[] =
         {
-            .address = (uint8_t*) heapData.samplerHeapAllocInfo.pMappedData + heapData.samplerLinearOffset,
-            .size = samplerDescSize
-        },
-        {
-            .address = (uint8_t*) heapData.samplerHeapAllocInfo.pMappedData + heapData.samplerNearestOffset,
-            .size = samplerDescSize
-        }
-    };
+            {.address = (uint8_t *)heapData.samplerHeapAllocInfo.pMappedData + heapData.samplerLinearOffset,
+             .size = samplerDescSize},
+            {.address = (uint8_t *)heapData.samplerHeapAllocInfo.pMappedData + heapData.samplerNearestOffset,
+             .size = samplerDescSize}};
     vkWriteSamplerDescriptorsEXT(device, 2, samplerInfos, samplerRanges);
 
-
-    heapData.bindingMappings[0] = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
-        .descriptorSet = 0,
-        .firstBinding = 0,
-        .bindingCount = 1,
-        .resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT,
-        .source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT,
-        .sourceData = 
+    heapData.bindingMappings[0] =
         {
-            .pushIndex = 
-            {
-                .heapOffset = heapData.perFrameOffset,
-                .pushOffset = 0,
-                .heapIndexStride = heapData.alignment
-            }
-        },
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
+            .descriptorSet = 0,
+            .firstBinding = 0,
+            .bindingCount = 1,
+            .resourceMask = VK_SPIRV_RESOURCE_TYPE_UNIFORM_BUFFER_BIT_EXT,
+            .source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_PUSH_INDEX_EXT,
+            .sourceData =
+                {
+                    .pushIndex =
+                        {
+                            .heapOffset = heapData.perFrameOffset,
+                            .pushOffset = 0,
+                            .heapIndexStride = heapData.alignment}},
     };
 
-    heapData.bindingMappings[1] = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
-        .descriptorSet = 0,
-        .firstBinding = 1,
-        .bindingCount = 1,
-        .resourceMask = VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT,
-        .source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT,
-        .sourceData = 
+    heapData.bindingMappings[1] =
         {
-            .constantOffset = 
-            {
-                .heapOffset = heapData.textureOffset,
-                .samplerHeapOffset = heapData.samplerNearestOffset
-            }
-        }
-    };
-
-
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT,
+            .descriptorSet = 0,
+            .firstBinding = 1,
+            .bindingCount = 1,
+            .resourceMask = VK_SPIRV_RESOURCE_TYPE_COMBINED_SAMPLED_IMAGE_BIT_EXT,
+            .source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT,
+            .sourceData =
+                {
+                    .constantOffset =
+                        {
+                            .heapOffset = heapData.textureOffset,
+                            .samplerHeapOffset = heapData.samplerNearestOffset}}};
 }
 
-void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT ** bindingMappings, uint32_t * bindingCount)
+void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT **bindingMappings, uint32_t *bindingCount)
 {
     (*bindingMappings) = heapData.bindingMappings;
     (*bindingCount) = 2;
 }
-void GfxUpdateTextureHeapDescriptors(Texture * textures, uint32_t count, uint32_t offset)
+void GfxUpdateTextureHeapDescriptors(Texture *textures, uint32_t count, uint32_t offset)
 {
     VkImageViewCreateInfo texImgViewInfos[MAX_TEXTURES];
     VkImageDescriptorInfoEXT imageInfos[MAX_TEXTURES];
@@ -1043,43 +975,39 @@ void GfxUpdateTextureHeapDescriptors(Texture * textures, uint32_t count, uint32_
     VkResourceDescriptorInfoEXT resourceDescriptorInfos[MAX_TEXTURES];
     for (uint32_t i = 0; i < count; ++i)
     {
-        texImgViewInfos[i] = 
-        {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = textures[i].image,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = textures[i].format,
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .levelCount = 1,
-                .layerCount = textures[i].layerCount
-            }
-        };
+        texImgViewInfos[i] =
+            {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = textures[i].image,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                .format = textures[i].format,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .levelCount = 1,
+                    .layerCount = textures[i].layerCount}};
         imageInfos[i].pNext = NULL;
         imageInfos[i].sType = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
         imageInfos[i].pView = &texImgViewInfos[i];
         imageInfos[i].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        hostAddrRanges[i].address = (uint8_t*)heapData.resourceHeapAllocInfo.pMappedData + heapData.textureOffset + heapData.alignment * (i + offset);
+        hostAddrRanges[i].address = (uint8_t *)heapData.resourceHeapAllocInfo.pMappedData + heapData.textureOffset + heapData.alignment * (i + offset);
         hostAddrRanges[i].size = heapData.alignment;
-        resourceDescriptorInfos[i] = 
-        {
-            .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
-            .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            .data = {
-                .pImage = &imageInfos[i]
-            }
-        };
+        resourceDescriptorInfos[i] =
+            {
+                .sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
+                .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .data = {
+                    .pImage = &imageInfos[i]}};
     }
     vkWriteResourceDescriptorsEXT(device, count, resourceDescriptorInfos, hostAddrRanges);
 }
 #endif
 
-void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
+void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset)
 {
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     GfxUpdateTextureHeapDescriptors(textures, count, offset);
     return;
-    #endif
+#endif
     VkDescriptorImageInfo textureDescriptors[MAX_TEXTURES];
     for (uint32_t i = 0; i < count; ++i)
     {
@@ -1087,24 +1015,23 @@ void GfxUpdateTextures(Texture * textures, uint32_t count, uint32_t offset)
         textureDescriptors[i].imageLayout = textures[i].imageLayout;
         textureDescriptors[i].imageView = textures[i].imageView;
     }
-    VkWriteDescriptorSet writeDescSet = 
-    {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = descriptorSetTex,
-        .dstBinding = 0,
-        .dstArrayElement = offset,
-        .descriptorCount = count,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 
-        .pImageInfo = textureDescriptors
-    };
+    VkWriteDescriptorSet writeDescSet =
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptorSetTex,
+            .dstBinding = 0,
+            .dstArrayElement = offset,
+            .descriptorCount = count,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = textureDescriptors};
     vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 }
-void GfxCreateScene(Scene * pScene)
+void GfxCreateScene(Scene *pScene)
 {
-    pScene->pRenderableData = (RenderableData*)malloc(sizeof(RenderableData) * MAX_RENDERABLES);
+    pScene->pRenderableData = (RenderableData *)malloc(sizeof(RenderableData) * MAX_RENDERABLES);
     pScene->numRenderables = 0;
 }
-void GfxUpdateScene(Scene * pScene)
+void GfxUpdateScene(Scene *pScene)
 {
     VkDescriptorBufferInfo bufferDescriptor = {};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
@@ -1113,29 +1040,32 @@ void GfxUpdateScene(Scene * pScene)
         bufferDescriptor.offset = 0;
         bufferDescriptor.range = sizeof(RenderableData) * pScene->numRenderables;
 
-        VkWriteDescriptorSet writeDescSet = 
-        {
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = descriptorSetsRenderableData[i],
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
-            .pBufferInfo = &bufferDescriptor
-        };
+        VkWriteDescriptorSet writeDescSet =
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptorSetsRenderableData[i],
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &bufferDescriptor};
+        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+
+        bufferDescriptor.buffer = renderableIndexBuffers[i];
+        bufferDescriptor.range = sizeof(uint32_t) * pScene->numRenderables;
+
+        writeDescSet.dstSet = descriptorSetsRenderableIndices[i];
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
     }
     renderableCount = pScene->numRenderables;
 }
 
-void GfxSetGlobalData(GlobalData & globalData)
+void GfxSetGlobalData(GlobalData &globalData)
 {
     memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
 
-
-
-void GfxInit() 
+void GfxInit()
 {
     GfxCreateWindow();
     GfxCreateInstance();
@@ -1150,10 +1080,11 @@ void GfxInit()
     AssetLoaderInit();
     GfxCreateShaderData();
     GfxCreateDescriptorPool();
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS 
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     GfxCreateDescriptorHeap();
-    #endif
+#endif
     GfxCreateBindlessRenderableBuffer();
+    GfxCreateRenderableIndexBuffer();
     GfxCreateBindlessDesc();
     GfxCreateIndirectBuffer();
 }
@@ -1166,81 +1097,73 @@ int GfxUpdate()
     return !glfwWindowShouldClose(window);
 }
 
-void GfxSetViewportAndScissors(VkCommandBuffer & cmd, uint32_t width, uint32_t height) 
+void GfxSetViewportAndScissors(VkCommandBuffer &cmd, uint32_t width, uint32_t height)
 {
     VkViewport viewport =
-    {
-        .width = (float)width,
-        .height = (float)height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-    VkRect2D scissor = 
-    {
-        .offset = {0,0},
-        .extent = {
-            width,
-            height
-        }
-    };
+        {
+            .width = (float)width,
+            .height = (float)height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f};
+    VkRect2D scissor =
+        {
+            .offset = {0, 0},
+            .extent = {
+                width,
+                height}};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 }
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxBindDescriptorHeaps()
 {
-    VkBindHeapInfoEXT bindHeapInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-        .heapRange = {
-            .address = heapData.resourceHeapDeviceAddress,
-            .size = heapData.resourceHeapSize
-        },
-        .reservedRangeOffset = 0,
-        .reservedRangeSize = heapProperties.minResourceHeapReservedRange
-    };
+    VkBindHeapInfoEXT bindHeapInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+            .heapRange = {
+                .address = heapData.resourceHeapDeviceAddress,
+                .size = heapData.resourceHeapSize},
+            .reservedRangeOffset = 0,
+            .reservedRangeSize = heapProperties.minResourceHeapReservedRange};
     vkCmdBindResourceHeapEXT(cmd, &bindHeapInfo);
 
-    bindHeapInfo.heapRange = 
-    {
-        .address = heapData.samplerHeapDeviceAddress,
-        .size = heapData.samplerHeapSize
-    };
+    bindHeapInfo.heapRange =
+        {
+            .address = heapData.samplerHeapDeviceAddress,
+            .size = heapData.samplerHeapSize};
     vkCmdBindSamplerHeapEXT(cmd, &bindHeapInfo);
 
-    PushConstants pushData = { frameIndex };
+    PushConstants pushData = {frameIndex};
 
-    VkPushDataInfoEXT pushDataInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT,
-        .offset = 0,
-        .data = 
+    VkPushDataInfoEXT pushDataInfo =
         {
-            .address = &pushData,
-            .size = sizeof(PushConstants)
-        }
-    };
+            .sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT,
+            .offset = 0,
+            .data =
+                {
+                    .address = &pushData,
+                    .size = sizeof(PushConstants)}};
 
     vkCmdPushDataEXT(cmd, &pushDataInfo);
 }
 #endif
 
-void GfxRenderScene(VkCommandBuffer & cmd)
+void GfxRenderScene(VkCommandBuffer &cmd)
 {
     GfxSetViewportAndScissors(cmd, windowWidth, windowHeight);
 
-    #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     GfxBindDescriptorHeaps();
-    #else
+#else
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 0, 1, &descriptorSetTex, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 2, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
+
     vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
-    #endif
-    
+#endif
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-    VkDeviceSize vOffset{ 0 };
+    VkDeviceSize vOffset{0};
 
     vkCmdBindVertexBuffers(cmd, 0, 1, GetMeshVertexBuffer(), &vOffset);
     vkCmdBindIndexBuffer(cmd, *GetMeshIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
@@ -1248,12 +1171,13 @@ void GfxRenderScene(VkCommandBuffer & cmd)
     vkCmdDrawIndexedIndirect(cmd, indirectDataBuffers[frameIndex], 0, (uint32_t)GetNumMeshes(), sizeof(Mesh));
 }
 
-void GfxSetRenderableData(Scene * pScene)
+void GfxSetRenderableData(Scene *pScene)
 {
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        memcpy(renderableDataAllocInfo[i].pMappedData, sortedRenderables, sizeof(RenderableData) * pScene->numRenderables);
+        memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
         memcpy(indirectDataAllocInfo[i].pMappedData, GetMesh(0), sizeof(Mesh) * GetNumMeshes());
+        memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
     }
 }
 
@@ -1263,96 +1187,79 @@ int GfxRender()
     VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
 
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
-    
-    
+
     VkCommandBuffer cmd = commandBuffers[frameIndex];
     VkCommandBufferBeginInfo beginInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-    };
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
-
-    VkImageMemoryBarrier2 outputBarriers[] = 
-    {
+    VkImageMemoryBarrier2 outputBarriers[] =
         {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = 0,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-            .image = swapchainImages[imageIndex],
-            .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
-        },
+            {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+             .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+             .srcAccessMask = 0,
+             .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+             .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+             .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+             .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+             .image = swapchainImages[imageIndex],
+             .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}},
+            {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+             .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+             .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+             .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+             .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+             .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+             .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+             .image = depthImage,
+             .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1}}};
+    VkDependencyInfo barrierDependencyInfo =
         {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-            .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-            .image = depthImage,
-            .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1 }
-        }
-    };
-    VkDependencyInfo barrierDependencyInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 2,
-        .pImageMemoryBarriers = outputBarriers
-    };
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .imageMemoryBarrierCount = 2,
+            .pImageMemoryBarriers = outputBarriers};
     vkCmdPipelineBarrier2(cmd, &barrierDependencyInfo);
 
-
-    VkRenderingAttachmentInfo colorAttachmentInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = swapchainImageViews[imageIndex],
-        .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = {.color = {0.0f, 0.5f, 1.0f, 1.0f}}
-    };
-    VkRenderingAttachmentInfo depthAttachmentInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = depthImageView,
-        .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .clearValue = {.depthStencil = {1.0f, 0}}
-    };
-
-    VkExtent2D extent = 
-    {
-        .width = windowWidth,
-        .height = windowHeight
-    };
-    VkRenderingInfo renderingInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = 
+    VkRenderingAttachmentInfo colorAttachmentInfo =
         {
-            .extent = {
-                .width = windowWidth,
-                .height = windowHeight
-            }
-        },
-        .layerCount = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &colorAttachmentInfo,
-        .pDepthAttachment = &depthAttachmentInfo
-    };
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = swapchainImageViews[imageIndex],
+            .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = {.color = {0.0f, 0.5f, 1.0f, 1.0f}}};
+    VkRenderingAttachmentInfo depthAttachmentInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = depthImageView,
+            .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .clearValue = {.depthStencil = {1.0f, 0}}};
+
+    VkExtent2D extent =
+        {
+            .width = windowWidth,
+            .height = windowHeight};
+    VkRenderingInfo renderingInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .renderArea =
+                {
+                    .extent = {
+                        .width = windowWidth,
+                        .height = windowHeight}},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
     vkCmdBeginRendering(cmd, &renderingInfo);
 
     GfxRenderScene(cmd);
 
     vkCmdEndRendering(cmd);
-
 
     VkImageMemoryBarrier2 barrierPresent{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -1363,17 +1270,14 @@ int GfxRender()
         .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
         .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .image = swapchainImages[imageIndex],
-        .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
-    };
+        .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
     VkDependencyInfo barrierPresentDependencyInfo{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrierPresent
-    };
+        .pImageMemoryBarriers = &barrierPresent};
     vkCmdPipelineBarrier2(cmd, &barrierPresentDependencyInfo);
 
     vkEndCommandBuffer(cmd);
-
 
     VkPipelineStageFlags waitStages = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submitInfo{
@@ -1390,15 +1294,13 @@ int GfxRender()
 
     frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
 
-
     VkPresentInfoKHR presentInfo{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &renderCompleteSemaphores[imageIndex],
         .swapchainCount = 1,
         .pSwapchains = &swapchain,
-        .pImageIndices = &imageIndex
-    };
+        .pImageIndices = &imageIndex};
     vkQueuePresentKHR(graphicsQueue, &presentInfo);
     return 0;
 }
@@ -1410,21 +1312,21 @@ void GfxPreDestroy()
 
     vkDeviceWaitIdle(device);
     vkQueueWaitIdle(graphicsQueue);
-
 }
 
 void GfxDestroy()
 {
-    
+
     AssetLoaderDestroy();
 
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         vmaDestroyBuffer(allocator, globalDataBuffers[i].buffer, globalDataBuffers[i].alloc);
-        
+
         vkDestroyFence(device, fences[i], nullptr);
         vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
 
+        vmaDestroyBuffer(allocator, renderableIndexBuffers[i], renderableIndexAllocations[i]);
         vmaDestroyBuffer(allocator, renderableDataBuffers[i], renderableDataAllocations[i]);
         vmaDestroyBuffer(allocator, indirectDataBuffers[i], indirectDataAllocations[i]);
     }
@@ -1435,24 +1337,21 @@ void GfxDestroy()
 
     free(renderCompleteSemaphores);
 
-
     GfxDestroySwapchain();
     vkDestroySurfaceKHR(instance, surface, nullptr);
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
     vkDestroyDescriptorSetLayout(device, descriptorSetLayoutRenderables, nullptr);
-    
+
     vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSetTex);
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
     vkDestroyCommandPool(device, commandPool, nullptr);
 
-
-
-    char * statsString;
+    char *statsString;
     vmaBuildStatsString(allocator, &statsString, 1);
 
     FILE *statsFile = fopen("vmaStats.json", "w");
-    
+
     fputs(statsString, statsFile);
 
     fclose(statsFile);
@@ -1468,74 +1367,64 @@ void GfxDestroy()
 
 void GfxCreateRenderableIndexBuffer()
 {
-    VkBufferCreateInfo bufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(uint32_t) * MAX_RENDERABLES,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-    };
-    VmaAllocationCreateInfo allocCreateInfo = 
-    {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
-    };
+    VkBufferCreateInfo bufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(uint32_t) * MAX_RENDERABLES,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
+    VmaAllocationCreateInfo allocCreateInfo =
+        {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(
             vmaCreateBuffer(
-                allocator, 
-                &bufferInfo, 
-                &allocCreateInfo, 
-                &renderableDataBuffers[i], 
-                &renderableDataAllocations[i], 
-                &renderableDataAllocInfo[i]
-            )
-        );
+                allocator,
+                &bufferInfo,
+                &allocCreateInfo,
+                &renderableIndexBuffers[i],
+                &renderableIndexAllocations[i],
+                &renderableIndexAllocInfo[i]));
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = renderableDataBuffers[i]
-        };
+            .buffer = renderableIndexBuffers[i]};
 
         char allocName[96];
         sprintf(allocName, "Renderable Indices Allocation: %i", i);
 
-        vmaSetAllocationName(allocator, renderableDataAllocations[i], allocName);
+        vmaSetAllocationName(allocator, renderableIndexAllocations[i], allocName);
     }
 }
 
 void GfxCreateBindlessRenderableBuffer()
 {
-    VkBufferCreateInfo bufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(RenderableData) * MAX_RENDERABLES,
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT
-    };
-    VmaAllocationCreateInfo allocCreateInfo = 
-    {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
-    };
+    VkBufferCreateInfo bufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(RenderableData) * MAX_RENDERABLES,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
+    VmaAllocationCreateInfo allocCreateInfo =
+        {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(
             vmaCreateBuffer(
-                allocator, 
-                &bufferInfo, 
-                &allocCreateInfo, 
-                &renderableDataBuffers[i], 
-                &renderableDataAllocations[i], 
-                &renderableDataAllocInfo[i]
-            )
-        );
+                allocator,
+                &bufferInfo,
+                &allocCreateInfo,
+                &renderableDataBuffers[i],
+                &renderableDataAllocations[i],
+                &renderableDataAllocInfo[i]));
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = renderableDataBuffers[i]
-        };
+            .buffer = renderableDataBuffers[i]};
 
         char allocName[96];
         sprintf(allocName, "Renderable Data Allocation: %i", i);
@@ -1546,35 +1435,30 @@ void GfxCreateBindlessRenderableBuffer()
 
 void GfxCreateIndirectBuffer()
 {
-    VkBufferCreateInfo bufferInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = sizeof(Mesh) * MAX_MESHES,
-        .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT
-    };
-    VmaAllocationCreateInfo allocCreateInfo = 
-    {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | 
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | 
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
-    };
+    VkBufferCreateInfo bufferInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(Mesh) * MAX_MESHES,
+            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT};
+    VmaAllocationCreateInfo allocCreateInfo =
+        {
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(
             vmaCreateBuffer(
-                allocator, 
-                &bufferInfo, 
-                &allocCreateInfo, 
-                &indirectDataBuffers[i], 
-                &indirectDataAllocations[i], 
-                &indirectDataAllocInfo[i]
-            )
-        );
+                allocator,
+                &bufferInfo,
+                &allocCreateInfo,
+                &indirectDataBuffers[i],
+                &indirectDataAllocations[i],
+                &indirectDataAllocInfo[i]));
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = indirectDataBuffers[i]
-        };
+            .buffer = indirectDataBuffers[i]};
 
         char allocName[96];
         sprintf(allocName, "Indirect Data Allocation: %i", i);
@@ -1585,26 +1469,23 @@ void GfxCreateIndirectBuffer()
 
 void GfxCreateBindlessDesc()
 {
-    //Create the Descriptor Layout
+    // Create the Descriptor Layout
     VkDescriptorBindingFlags descVariableFlags[] =
-    {
-        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | 
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | 
-        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
-    };
-    VkDescriptorSetLayoutBindingFlagsCreateInfo descBindingFlags = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindingFlags = descVariableFlags
-    };
-        
-    //Texture Descriptor Set
+        {
+            VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT |
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT};
+    VkDescriptorSetLayoutBindingFlagsCreateInfo descBindingFlags =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+            .bindingCount = 1,
+            .pBindingFlags = descVariableFlags};
+
+    // Texture Descriptor Set
     VkDescriptorSetLayoutBinding descLayoutBindingTex = {
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = MAX_TEXTURES,
-        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
-    };
+        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT};
     VkDescriptorSetLayoutCreateInfo descLayoutTexCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,
@@ -1615,65 +1496,66 @@ void GfxCreateBindlessDesc()
     VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutTexCreateInfo, NULL, &descriptorSetLayoutTex));
 
     uint32_t variableDescCount = MAX_TEXTURES;
-    VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAllocInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
-        .descriptorSetCount = 1,
-        .pDescriptorCounts = &variableDescCount
-    };
-    VkDescriptorSetAllocateInfo texDescSetAllocInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = &variableDescCountAllocInfo,
-        .descriptorPool = descriptorPool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &descriptorSetLayoutTex
-    };
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variableDescCountAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+            .descriptorSetCount = 1,
+            .pDescriptorCounts = &variableDescCount};
+    VkDescriptorSetAllocateInfo texDescSetAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext = &variableDescCountAllocInfo,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &descriptorSetLayoutTex};
     VK_CHECK(vkAllocateDescriptorSets(device, &texDescSetAllocInfo, &descriptorSetTex));
 
-
-    //Renderable Data Descriptor Set
+    // Renderable Data/Indices Descriptor Set and Layout
     VkDescriptorSetLayoutBinding descLayoutBindingRenderable = {
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = MAX_RENDERABLES,
-        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS
-    };
+        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS};
     VkDescriptorSetLayoutCreateInfo descLayoutRenderableCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,
         .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
-        .pBindings = &descLayoutBindingRenderable
-    };
+        .pBindings = &descLayoutBindingRenderable};
     VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutRenderableCreateInfo, NULL, &descriptorSetLayoutRenderables));
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutRenderableCreateInfo, NULL, &descriptorSetLayoutRenderableIndices));
 
     variableDescCount = MAX_RENDERABLES;
     variableDescCountAllocInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
-        .descriptorSetCount = 1,
-        .pDescriptorCounts = &variableDescCount
-    };
-    VkDescriptorSetAllocateInfo renderableDescSetAllocInfo = 
-    {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = &variableDescCountAllocInfo,
-        .descriptorPool = descriptorPool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &descriptorSetLayoutRenderables
-    };
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+            .descriptorSetCount = 1,
+            .pDescriptorCounts = &variableDescCount};
+    VkDescriptorSetAllocateInfo renderableDescSetAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext = &variableDescCountAllocInfo,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &descriptorSetLayoutRenderables};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableData[i]));
     }
+    renderableDescSetAllocInfo.pSetLayouts = &descriptorSetLayoutRenderableIndices;
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableIndices[i]));
+    }
 }
-
-
 
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures()
 {
     return descriptorSetLayoutTex;
+}
+VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderableIndices()
+{
+    return descriptorSetLayoutRenderableIndices;
 }
 
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables()

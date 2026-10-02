@@ -10,7 +10,7 @@
 #define MAX_MESHES 65535
 #define MAX_DESCRIPTOR_SETS 4
 
-struct Vertex 
+struct Vertex
 {
     glm::vec3 mPos;
     glm::vec3 mNormal;
@@ -20,11 +20,12 @@ struct Vertex
 typedef uint16_t MeshID;
 typedef VkDrawIndexedIndirectCommand Mesh;
 
-enum TextureFlags {
+enum TextureFlags
+{
     TEXTURE_FLAG_RENDER_TARGET
 };
 
-struct Texture 
+struct Texture
 {
     VkImage image;
     VkImageView imageView;
@@ -66,6 +67,6 @@ struct RenderableData
 
 struct Scene
 {
-    RenderableData * pRenderableData;
+    RenderableData *pRenderableData;
     uint32_t numRenderables = 0;
 };
