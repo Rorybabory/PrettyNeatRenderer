@@ -1,0 +1,17 @@
+{
+  "name": "vulkan-renderer",
+  "version": "1.0.0",
+  "dependencies": [
+    "vulkan",
+    "glfw3",
+    "vulkan-memory-allocator",
+    "assimp",
+    {
+      "name": "ktx",
+      "features": [
+        "vulkan"
+      ]
+    },
+    "spirv-headers"
+  ]
+}

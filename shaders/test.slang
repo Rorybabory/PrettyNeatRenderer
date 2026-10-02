@@ -1,3 +1,4 @@
+
 struct VSInput {
     float3 Pos;
     float3 Normal;
@@ -34,8 +35,7 @@ struct VSOutput {
     uint32_t textureID;
 };
 
-[[vk::binding(0, 0)]] uniform Sampler2D g_textures[];
-
+[[vk::binding(0, 0)]] Sampler2D g_textures[512];
 [[vk::binding(0, 1)]] StructuredBuffer<RenderableData> renderableData;
 
 [shader("vertex")]

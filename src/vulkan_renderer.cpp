@@ -3,6 +3,7 @@
 #include "glm/trigonometric.hpp"
 #include "resource.h"
 #include "volk.h"
+#include <stddef.h>
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 
 #include "asset_loader.h"
@@ -14,7 +15,6 @@
 #include <cstdio>
 #include <stdlib.h>
 #include <time.h>
-#include <unistd.h>
 #include <vulkan/vulkan_core.h>
 // #include <vulkan/vulkan.h>
 #define GLFW_INCLUDE_VULKAN
@@ -423,10 +423,14 @@ void GfxCreateDevice()
         .pNext = &enabledVk11Features,
         .descriptorIndexing = true,
         .shaderSampledImageArrayNonUniformIndexing = true,
+        .descriptorBindingSampledImageUpdateAfterBind = true,
+        .descriptorBindingStorageBufferUpdateAfterBind = true,
+        .descriptorBindingUniformTexelBufferUpdateAfterBind = true,
+        .descriptorBindingPartiallyBound = true,
         .descriptorBindingVariableDescriptorCount = true,
         .runtimeDescriptorArray = true,
         .bufferDeviceAddress = true,
-        .bufferDeviceAddressCaptureReplay = true
+        .bufferDeviceAddressCaptureReplay = true,
     };
     VkPhysicalDeviceVulkan13Features enabledVk13Features = 
     {
@@ -567,7 +571,7 @@ void GfxCreateSwapchain()
     VkExtent2D swapchainExtent = surfaceCaps.currentExtent;
     if (surfaceCaps.currentExtent.width == 0xFFFFFFFF)
     {
-        swapchainExtent = (VkExtent2D){
+        swapchainExtent = {
             windowWidth,
             windowHeight
         };
@@ -801,7 +805,7 @@ void GfxCreateDescriptorPool()
     VkDescriptorPoolCreateInfo descPoolCreateInfo = 
     {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
         .maxSets = MAX_DESCRIPTOR_SETS,
         .poolSizeCount = 2,
         .pPoolSizes = poolSizes
@@ -1582,20 +1586,19 @@ void GfxCreateIndirectBuffer()
 void GfxCreateBindlessDesc()
 {
     //Create the Descriptor Layout
-    VkDescriptorBindingFlags descVariableFlag =
+    VkDescriptorBindingFlags descVariableFlags[] =
     {
-        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
+        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | 
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | 
+        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
     };
     VkDescriptorSetLayoutBindingFlagsCreateInfo descBindingFlags = 
     {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .bindingCount = 1,
-        .pBindingFlags = &descVariableFlag
+        .pBindingFlags = descVariableFlags
     };
-    
-    
-
-    
+        
     //Texture Descriptor Set
     VkDescriptorSetLayoutBinding descLayoutBindingTex = {
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1605,8 +1608,9 @@ void GfxCreateBindlessDesc()
     VkDescriptorSetLayoutCreateInfo descLayoutTexCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
-        .pBindings = &descLayoutBindingTex
+        .pBindings = &descLayoutBindingTex,
     };
     VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutTexCreateInfo, NULL, &descriptorSetLayoutTex));
 
@@ -1638,6 +1642,7 @@ void GfxCreateBindlessDesc()
     VkDescriptorSetLayoutCreateInfo descLayoutRenderableCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
         .pBindings = &descLayoutBindingRenderable
     };

@@ -572,7 +572,11 @@ PipelineID LoadPipeline(PipelineLoadInfo * pipelineInfo)
     };
     VkGraphicsPipelineCreateInfo pipelineCreateInfo{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
         .pNext = &pipelineCreateFlagsInfo,
+        #else
+        .pNext = &renderingCreateInfo,
+        #endif
         .stageCount = 2,
         .pStages = shaderStages,
         .pVertexInputState = &vertexInputState,
