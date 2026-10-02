@@ -20,6 +20,10 @@ struct Vertex
 typedef uint16_t MeshID;
 typedef VkDrawIndexedIndirectCommand Mesh;
 
+enum TextureFlags {
+    TEXTURE_FLAG_RENDER_TARGET
+};
+
 struct Texture 
 {
     VkImage image;

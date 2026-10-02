@@ -12,6 +12,10 @@ MeshID mSphereMesh;
 Texture mTestTexture;
 Texture mTestTexture2;
 Texture mTestTexture3;
+
+Texture mGBufferColor;
+Texture mGBufferDepth;
+
 PipelineID mPipelineID;
 
 Scene scene;
@@ -33,6 +37,19 @@ int main() {
     texLoadInfo.filename = "textures/bricks3.ktx2";
     LoadTexture(&texLoadInfo, mTestTexture3);
 
+    RenderTargetCreateInfo rtCreateInfo = {
+        .name = "GBuffer Color",
+        .width = -1,
+        .height = -1,
+        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .isDepth = false
+    };
+    CreateRenderTarget(&rtCreateInfo, mGBufferColor);
+    rtCreateInfo.name = "GBuffer Depth";
+    rtCreateInfo.isDepth = true;
+    rtCreateInfo.format = VK_FORMAT_D32_SFLOAT;
+    CreateRenderTarget(&rtCreateInfo, mGBufferDepth);
+    
 
     mMonkeyMesh = LoadMesh(&meshLoadInfo);
     meshLoadInfo.filename = "meshes/cube.obj";

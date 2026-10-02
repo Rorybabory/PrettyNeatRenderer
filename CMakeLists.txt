@@ -57,7 +57,7 @@ if(MSVC)
 endif()
 
 # 3. Cross-Platform Shader Compilation (Replaces bash script)
-file(GLOB SHADER_SOURCES "shaders/*.vert" "shaders/*.frag" "shaders/*.comp", "shaders/*.slang")
+file(GLOB SHADER_SOURCES "shaders/*.vert" "shaders/*.frag" "shaders/*.comp" "shaders/*.slang")
 set(SHADER_PRODUCTS "")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 

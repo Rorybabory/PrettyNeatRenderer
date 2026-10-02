@@ -24,6 +24,16 @@ struct TextureLoadInfo
 bool LoadTexture(TextureLoadInfo * loadInfo, Texture & texture);
 void DestroyTexture(Texture & texture);
 
+struct RenderTargetCreateInfo
+{
+    const char * name;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    bool isDepth;
+};
+bool CreateRenderTarget(RenderTargetCreateInfo * createInfo, Texture & texture);
+
 struct PipelineLoadInfo
 {
     const char * shaderFile;
