@@ -73,7 +73,9 @@ int main()
             .descSetLayouts = layouts,
             .numLayouts = 3};
     mPipelineID = LoadPipeline(&pipelineInfo);
+
     GfxSetPipeline(GetPipeline(mPipelineID));
+
     int monkeysPerAxis = 64;
     float size = 0.02f;
     for (uint32_t i = 0; i < monkeysPerAxis; ++i)

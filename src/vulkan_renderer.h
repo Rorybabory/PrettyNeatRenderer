@@ -52,6 +52,8 @@ void GfxSetMesh(Mesh *mesh);
 
 void GfxSetPipeline(Pipeline *_pipeline);
 
+VkCommandBuffer GfxCreateOneTimeCmdBuffer();
+
 float GfxGetAspectRatio();
 
 void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT **bindingMappings, uint32_t *bindingCount);

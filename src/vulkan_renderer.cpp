@@ -134,6 +134,9 @@ VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
 VkDescriptorSetLayout descriptorSetLayoutRenderableIndices;
 VkDescriptorSet descriptorSetsRenderableIndices[FRAMES_IN_FLIGHT];
 
+VkDescriptorSetLayout descriptorSetLayoutIndirect;
+VkDescriptorSet descriptorSetsIndirect[FRAMES_IN_FLIGHT];
+
 VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
@@ -329,11 +332,25 @@ void GfxSortRenderables(Scene &scene)
     uint32_t meshOffsets[MAX_MESHES];
     memset(meshOffsets, 0, sizeof(uint32_t) * MAX_MESHES);
 
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        memcpy(indirectDataAllocInfo[i].pMappedData, GetMesh(0), sizeof(Mesh) * GetNumMeshes());
+        VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
+        VkCommandBufferBeginInfo beginInfo =
+            {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+        VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+        VK_CHECK(vkEndCommandBuffer(cmd));
+    }
+
     for (uint16_t i = 0; i < GetNumMeshes(); ++i)
     {
         meshRegistry[i].firstInstance = 0;
         meshRegistry[i].instanceCount = 0;
     }
+
     for (uint32_t i = 0; i < renderableCount; ++i)
     {
         Mesh *mesh = GetMesh(scene.pRenderableData[i].mesh);
@@ -1176,7 +1193,6 @@ void GfxSetRenderableData(Scene *pScene)
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
-        memcpy(indirectDataAllocInfo[i].pMappedData, GetMesh(0), sizeof(Mesh) * GetNumMeshes());
         memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
     }
 }
@@ -1547,6 +1563,51 @@ void GfxCreateBindlessDesc()
     {
         VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableIndices[i]));
     }
+
+    // Mesh Indirect Descriptor Set/Layout
+    VkDescriptorSetLayoutBinding descLayoutBindingIndirect = {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .descriptorCount = MAX_MESHES,
+        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS};
+    VkDescriptorSetLayoutCreateInfo descLayoutIndirectCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = &descBindingFlags,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+        .bindingCount = 1,
+        .pBindings = &descLayoutBindingRenderable};
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutIndirectCreateInfo, NULL, &descriptorSetLayoutIndirect));
+
+    variableDescCount = MAX_MESHES;
+    variableDescCountAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
+            .descriptorSetCount = 1,
+            .pDescriptorCounts = &variableDescCount};
+    VkDescriptorSetAllocateInfo indirectDescSetAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext = &variableDescCountAllocInfo,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &descriptorSetLayoutIndirect};
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
+        VK_CHECK(vkAllocateDescriptorSets(device, &indirectDescSetAllocInfo, &descriptorSetsIndirect[i]));
+    }
+}
+
+VkCommandBuffer GfxCreateOneTimeCmdBuffer()
+{
+    VkCommandBufferAllocateInfo cmdAllocInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = GfxGetCommandPool(),
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1};
+    VkCommandBuffer cmdBuffer;
+    vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmdBuffer);
+    return cmdBuffer;
 }
 
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures()

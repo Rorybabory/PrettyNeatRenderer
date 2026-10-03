@@ -168,14 +168,7 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
     mesh.firstIndex = meshIndexBufferSize / sizeof(uint32_t);
 
     // Allocate a transfer command buffer
-    VkCommandBufferAllocateInfo cmdAllocInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = GfxGetCommandPool(),
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1};
-    VkCommandBuffer copyCmdBuffer;
-    vkAllocateCommandBuffers(device, &cmdAllocInfo, &copyCmdBuffer);
+    VkCommandBuffer copyCmdBuffer = GfxCreateOneTimeCmdBuffer();
 
     // Record Buffer Transfer Command
     VkCommandBufferBeginInfo beginInfo =
@@ -421,35 +414,31 @@ void DestroyTexture(Texture &texture)
     vkDestroySampler(device, texture.sampler, nullptr);
     vkDestroyImageView(device, texture.imageView, nullptr);
 }
-PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo)
+Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shaderModule)
 {
     Pipeline pipeline;
 
-    FILE *spvFile = fopen(pipelineInfo->shaderFile, "rb");
-    if (!spvFile)
-    {
-        spdlog::error("Failed to load shader: {}", pipelineInfo->shaderFile);
-        return -1;
-    }
-    fseek(spvFile, 0, SEEK_END);
-    size_t fileLength = ftell(spvFile);
-    rewind(spvFile);
-    if (fileLength > MAX_SHADER_SIZE)
-    {
-        spdlog::error("Shader is to large, increase max shader size: {}", pipelineInfo->shaderFile);
-        return -1;
-    }
-    fread(scratchShaderSrc, 1, fileLength, spvFile);
-    fclose(spvFile);
-
-    VkShaderModuleCreateInfo smInfo =
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo =
         {
-            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = fileLength,
-            .pCode = (const uint32_t *)scratchShaderSrc};
-    VkShaderModule shaderModule = {};
-    VK_CHECK(vkCreateShaderModule(device, &smInfo, nullptr, &shaderModule));
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = pipelineInfo->numLayouts,
+            .pSetLayouts = pipelineInfo->descSetLayouts,
+            .pushConstantRangeCount = 0,
+            .pPushConstantRanges = NULL};
+    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipeline.layout));
 
+    VkComputePipelineCreateInfo pipelineInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = shaderModule,
+            .pName = "main",
+        }};
+}
+Pipeline LoadGraphicsPipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shaderModule)
+{
+    Pipeline pipeline;
     VkPushConstantRange pushConstantRange =
         {
             .stageFlags = VK_SHADER_STAGE_ALL,
@@ -587,6 +576,47 @@ PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo)
 #endif
     };
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &pipeline.pipeline));
+    return pipeline;
+}
+
+PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo)
+{
+    Pipeline pipeline;
+
+    FILE *spvFile = fopen(pipelineInfo->shaderFile, "rb");
+    if (!spvFile)
+    {
+        spdlog::error("Failed to load shader: {}", pipelineInfo->shaderFile);
+        return -1;
+    }
+    fseek(spvFile, 0, SEEK_END);
+    size_t fileLength = ftell(spvFile);
+    rewind(spvFile);
+    if (fileLength > MAX_SHADER_SIZE)
+    {
+        spdlog::error("Shader is to large, increase max shader size: {}", pipelineInfo->shaderFile);
+        return -1;
+    }
+    fread(scratchShaderSrc, 1, fileLength, spvFile);
+    fclose(spvFile);
+
+    VkShaderModuleCreateInfo smInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = fileLength,
+            .pCode = (const uint32_t *)scratchShaderSrc};
+    VkShaderModule shaderModule = {};
+    VK_CHECK(vkCreateShaderModule(device, &smInfo, nullptr, &shaderModule));
+
+    if (pipelineInfo->flags & PIPELINE_FLAG_GRAPHICS)
+    {
+        LoadGraphicsPipeline(pipelineInfo, shaderModule);
+    }
+    else if (pipelineInfo->flags & PIPELINE_FLAG_COMPUTE)
+    {
+        LoadComputePipeline(pipelineInfo, shaderModule);
+    }
+
     vkDestroyShaderModule(device, shaderModule, nullptr);
 
     pipelineRegistry[pipelineRegistryCount++] = pipeline;
