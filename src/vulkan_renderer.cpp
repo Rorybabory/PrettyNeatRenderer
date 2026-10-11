@@ -133,6 +133,7 @@ VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
 
 VkDescriptorSetLayout descriptorSetLayoutRenderableIndices;
 VkDescriptorSet descriptorSetsRenderableIndices[FRAMES_IN_FLIGHT];
+uint32_t renderableIndices[MAX_RENDERABLES];
 
 VkDescriptorSetLayout descriptorSetLayoutIndirect;
 VkDescriptorSet descriptorSetsIndirect[FRAMES_IN_FLIGHT];
@@ -151,9 +152,13 @@ VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
 
 VkDrawIndexedIndirectCommand renderableIndirectCommands[MAX_MESHES];
 
-uint32_t renderableIndices[MAX_RENDERABLES];
 
 uint32_t renderableCount = 0;
+
+PipelineID pipelineClearIndirectCS;
+PipelineID pipelineIncrementIndirectCS;
+PipelineID pipelineMeshOffsetsIndirectCS;
+PipelineID pipelineIndicesIndirectCS;
 
 #endif
 
@@ -329,47 +334,94 @@ extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
 void GfxSortRenderables(Scene &scene)
 {
-    uint32_t meshOffsets[MAX_MESHES];
-    memset(meshOffsets, 0, sizeof(uint32_t) * MAX_MESHES);
-
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        memcpy(indirectDataAllocInfo[i].pMappedData, GetMesh(0), sizeof(Mesh) * GetNumMeshes());
+        memcpy(indirectDataAllocInfo[i].pMappedData, &meshRegistry, GetNumMeshes() * sizeof(Mesh));
+        memcpy(renderableDataAllocInfo[i].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData) / 2);
+    }
+    spdlog::log(spdlog::level::info, "Began Sorting Renderables");
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    {
         VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
         VkCommandBufferBeginInfo beginInfo =
             {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                 .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
         VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+        spdlog::log(spdlog::level::info, "Started recording sorting command buffer");
+        //Clear Specific values in indirect buffer
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
+        vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
+        spdlog::log(spdlog::level::info, "recorded clear command sorting command buffer");
+        VkMemoryBarrier2 barrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR
+        };
+        VkDependencyInfo dependencyInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &barrier
+        };
+
+        //Increment indirect data based on number of renderables with each mesh
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[i], 0, nullptr);
+        vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+        spdlog::log(spdlog::level::info, "recorded increment indirect sorting command buffer");
+
+        //Assign Mesh Offsets for each mesh
+        uint32_t numMeshes = GetNumMeshes();
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
+        VkPushConstantsInfo pushInfo = {
+            .sType = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
+            .layout = GetPipeline(pipelineMeshOffsetsIndirectCS)->layout,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .size = sizeof(uint32_t),
+            .pValues = &numMeshes,
+        };
+        vkCmdPushConstants(cmd,GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
+        vkCmdDispatch(cmd, 1, 1, 1);
+        spdlog::log(spdlog::level::info, "recorded assign mesh offsets sorting command buffer");
+
+
+        //Calculate Renderable Indices
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[i], 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[i], 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[i], 0, nullptr);
+        vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+        spdlog::log(spdlog::level::info, "recorded renderable indices sorting command buffer");
 
         VK_CHECK(vkEndCommandBuffer(cmd));
-    }
+        spdlog::log(spdlog::level::info, "Finished recording sorting command buffer");
+        VkQueue queue = GfxGetQueue();
+        VkSubmitInfo submitInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd
+        };
+        VkFence fence;
+        VkFenceCreateInfo fenceCreateInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        };
+        vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
+        spdlog::log(spdlog::level::info, "Submitted renderable sorting command buffers");
+        vkQueueSubmit(queue, 1, &submitInfo, fence);
 
-    for (uint16_t i = 0; i < GetNumMeshes(); ++i)
-    {
-        meshRegistry[i].firstInstance = 0;
-        meshRegistry[i].instanceCount = 0;
+        vkWaitForFences(device, 1, &fence, true, UINT64_MAX);
     }
-
-    for (uint32_t i = 0; i < renderableCount; ++i)
-    {
-        Mesh *mesh = GetMesh(scene.pRenderableData[i].mesh);
-        mesh->instanceCount++;
-    }
-    uint32_t currentOffset = 0;
-    for (uint32_t i = 0; i < GetNumMeshes(); ++i)
-    {
-        Mesh *mesh = GetMesh(i);
-        meshOffsets[i] = currentOffset;
-        mesh->firstInstance = currentOffset;
-        currentOffset += mesh->instanceCount;
-    }
-    for (uint32_t i = 0; i < renderableCount; ++i)
-    {
-        Mesh *mesh = GetMesh(scene.pRenderableData[i].mesh);
-        renderableIndices[meshOffsets[scene.pRenderableData[i].mesh]] = i;
-        meshOffsets[scene.pRenderableData[i].mesh]++;
-    }
+    spdlog::log(spdlog::level::info, "Finished Sorting Renderables");
 }
 
 void GfxSelectDevice()
@@ -408,7 +460,9 @@ void GfxCreateDevice()
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
     for (size_t i = 0; i < queueFamilyCount; ++i)
     {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && glfwGetPhysicalDevicePresentationSupport(instance, physicalDevice, i))
+        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+            queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT &&
+            glfwGetPhysicalDevicePresentationSupport(instance, physicalDevice, i))
         {
             queueFamily = i;
             break;
@@ -777,6 +831,59 @@ void GfxCreateCommandBuffer()
     VK_CHECK(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &commandBuffers[0]));
 }
 
+void GfxCreateComputePipelines()
+{
+    spdlog::log(spdlog::level::info, "Began Creating Compute Pipelines");
+    VkDescriptorSetLayout layoutClear[] =
+    {
+        descriptorSetLayoutIndirect
+    };
+    PipelineLoadInfo pipelineInfo = 
+    {
+        .shaderFile = "shaders/clearIndirectCS.spv",
+        .descSetLayouts = layoutClear,
+        .numLayouts = 1,
+        .flags = PIPELINE_FLAG_COMPUTE
+    };
+    pipelineClearIndirectCS = LoadPipeline(&pipelineInfo);
+
+
+    VkDescriptorSetLayout layoutInc[] =
+    {
+        descriptorSetLayoutIndirect,
+        descriptorSetLayoutRenderables
+    };
+    pipelineInfo.shaderFile = "shaders/incrementIndirectCS.spv";
+    pipelineInfo.descSetLayouts = layoutInc;
+    pipelineInfo.numLayouts = 2;
+    pipelineIncrementIndirectCS = LoadPipeline(&pipelineInfo);
+
+
+    VkDescriptorSetLayout layoutMeshOffsets[] =
+    {
+        descriptorSetLayoutIndirect
+    };
+    pipelineInfo.shaderFile = "shaders/meshOffsetsIndirectCS.spv";
+    pipelineInfo.descSetLayouts = layoutMeshOffsets;
+    pipelineInfo.numLayouts = 1;
+    pipelineInfo.pushConstantSize = sizeof(uint32_t);
+    pipelineMeshOffsetsIndirectCS = LoadPipeline(&pipelineInfo);
+
+    VkDescriptorSetLayout layoutIndices[] =
+    {
+        descriptorSetLayoutRenderableIndices,
+        descriptorSetLayoutRenderables,
+        descriptorSetLayoutIndirect
+    };
+    pipelineInfo.shaderFile = "shaders/calculateIndicesIndirectCS.spv";
+    pipelineInfo.descSetLayouts = layoutIndices;
+    pipelineInfo.numLayouts = 3;
+    pipelineInfo.pushConstantSize = 0;
+    pipelineIndicesIndirectCS = LoadPipeline(&pipelineInfo);
+    spdlog::log(spdlog::level::info, "Created Compute Pipelines");
+
+}
+
 VkCommandPool GfxGetCommandPool()
 {
     return commandPool;
@@ -1068,10 +1175,16 @@ void GfxUpdateScene(Scene *pScene)
                 .pBufferInfo = &bufferDescriptor};
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 
+
         bufferDescriptor.buffer = renderableIndexBuffers[i];
         bufferDescriptor.range = sizeof(uint32_t) * pScene->numRenderables;
-
         writeDescSet.dstSet = descriptorSetsRenderableIndices[i];
+        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+
+
+        bufferDescriptor.buffer = indirectDataBuffers[i];
+        bufferDescriptor.range = sizeof(Mesh) * MAX_MESHES;
+        writeDescSet.dstSet = descriptorSetsIndirect[i];
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
     }
     renderableCount = pScene->numRenderables;
@@ -1104,6 +1217,7 @@ void GfxInit()
     GfxCreateRenderableIndexBuffer();
     GfxCreateBindlessDesc();
     GfxCreateIndirectBuffer();
+    GfxCreateComputePipelines();
 }
 
 int GfxUpdate()
@@ -1193,7 +1307,7 @@ void GfxSetRenderableData(Scene *pScene)
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
-        memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
+        // memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
     }
 }
 
@@ -1531,7 +1645,7 @@ void GfxCreateBindlessDesc()
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = MAX_RENDERABLES,
-        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS};
+        .stageFlags = VK_SHADER_STAGE_ALL};
     VkDescriptorSetLayoutCreateInfo descLayoutRenderableCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,
@@ -1569,7 +1683,7 @@ void GfxCreateBindlessDesc()
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = MAX_MESHES,
-        .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS};
+        .stageFlags = VK_SHADER_STAGE_ALL};
     VkDescriptorSetLayoutCreateInfo descLayoutIndirectCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &descBindingFlags,

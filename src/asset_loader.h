@@ -45,6 +45,7 @@ struct PipelineLoadInfo
     VkDescriptorSetLayout *descSetLayouts;
     uint32_t numLayouts;
     PipelineFlags flags;
+    uint32_t pushConstantSize;
 };
 
 PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo);

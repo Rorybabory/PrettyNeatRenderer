@@ -18,6 +18,7 @@ Texture mGBufferDepth;
 
 PipelineID mPipelineID;
 
+
 Scene scene;
 
 int main()
@@ -71,8 +72,11 @@ int main()
         {
             .shaderFile = "shaders/test.spv",
             .descSetLayouts = layouts,
-            .numLayouts = 3};
+            .numLayouts = 3,
+            .flags = PIPELINE_FLAG_GRAPHICS
+        };
     mPipelineID = LoadPipeline(&pipelineInfo);
+
 
     GfxSetPipeline(GetPipeline(mPipelineID));
 
@@ -120,8 +124,8 @@ int main()
     }
 
     GfxUpdateScene(&scene);
-    GfxSortRenderables(scene);
     GfxSetRenderableData(&scene);
+    GfxSortRenderables(scene);
 
     float dt = 0.0f;
     float lastTime = 0.0f;

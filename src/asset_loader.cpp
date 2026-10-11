@@ -422,19 +422,30 @@ Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shad
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = pipelineInfo->numLayouts,
-            .pSetLayouts = pipelineInfo->descSetLayouts,
-            .pushConstantRangeCount = 0,
-            .pPushConstantRanges = NULL};
+            .pSetLayouts = pipelineInfo->descSetLayouts};
+    if (pipelineInfo->pushConstantSize > 0)
+    {
+        VkPushConstantRange range = {
+            .offset = 0,
+            .size = pipelineInfo->pushConstantSize
+        };
+        pipelineLayoutInfo.pPushConstantRanges = &range;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+    }
     VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipeline.layout));
 
-    VkComputePipelineCreateInfo pipelineInfo = {
+    VkComputePipelineCreateInfo pipelineCreateInfo = {
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_COMPUTE_BIT,
             .module = shaderModule,
             .pName = "main",
-        }};
+        },
+        .layout = pipeline.layout 
+    };
+    vkCreateComputePipelines(device, nullptr, 1, &pipelineCreateInfo, nullptr, &pipeline.pipeline);
+    return pipeline;
 }
 Pipeline LoadGraphicsPipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shaderModule)
 {
@@ -610,11 +621,13 @@ PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo)
 
     if (pipelineInfo->flags & PIPELINE_FLAG_GRAPHICS)
     {
-        LoadGraphicsPipeline(pipelineInfo, shaderModule);
+        pipeline = LoadGraphicsPipeline(pipelineInfo, shaderModule);
     }
     else if (pipelineInfo->flags & PIPELINE_FLAG_COMPUTE)
     {
-        LoadComputePipeline(pipelineInfo, shaderModule);
+        pipeline = LoadComputePipeline(pipelineInfo, shaderModule);
+    }else {
+        
     }
 
     vkDestroyShaderModule(device, shaderModule, nullptr);
