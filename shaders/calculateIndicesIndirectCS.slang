@@ -35,7 +35,6 @@ RWStructuredBuffer<Mesh> g_indirectData;
 void main(uint3 threadId: SV_DispatchThreadID)
 {
     uint16_t meshID = renderableData[threadId.x].mesh;
-    uint32_t writeIndex = g_indirectData[meshID].meshOffset.load()+1;
-    g_indirectData[meshID].meshOffset++;
+    uint32_t writeIndex = g_indirectData[meshID].meshOffset++;
     renderableIndices[writeIndex] = threadId.x;
 }

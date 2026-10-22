@@ -80,8 +80,8 @@ int main()
 
     GfxSetPipeline(GetPipeline(mPipelineID));
 
-    int monkeysPerAxis = 64;
-    float size = 0.02f;
+    int monkeysPerAxis = 4;
+    float size = 0.1f;
     for (uint32_t i = 0; i < monkeysPerAxis; ++i)
     {
         for (uint32_t j = 0; j < monkeysPerAxis; ++j)

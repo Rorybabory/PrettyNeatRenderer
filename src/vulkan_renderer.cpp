@@ -337,7 +337,7 @@ void GfxSortRenderables(Scene &scene)
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         memcpy(indirectDataAllocInfo[i].pMappedData, &meshRegistry, GetNumMeshes() * sizeof(Mesh));
-        memcpy(renderableDataAllocInfo[i].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData) / 2);
+        memcpy(renderableDataAllocInfo[i].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
     }
     spdlog::log(spdlog::level::info, "Began Sorting Renderables");
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
@@ -357,9 +357,9 @@ void GfxSortRenderables(Scene &scene)
         VkMemoryBarrier2 barrier = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR,
             .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR
+            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR
         };
         VkDependencyInfo dependencyInfo = {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -400,6 +400,7 @@ void GfxSortRenderables(Scene &scene)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[i], 0, nullptr);
         vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
         spdlog::log(spdlog::level::info, "recorded renderable indices sorting command buffer");
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
 
         VK_CHECK(vkEndCommandBuffer(cmd));
         spdlog::log(spdlog::level::info, "Finished recording sorting command buffer");
@@ -1569,7 +1570,8 @@ void GfxCreateIndirectBuffer()
         {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = sizeof(Mesh) * MAX_MESHES,
-            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT};
+            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT 
+            | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
     VmaAllocationCreateInfo allocCreateInfo =
         {
             .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |

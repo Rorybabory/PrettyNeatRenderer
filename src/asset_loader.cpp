@@ -423,11 +423,13 @@ Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shad
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = pipelineInfo->numLayouts,
             .pSetLayouts = pipelineInfo->descSetLayouts};
+    VkPushConstantRange range = {};
     if (pipelineInfo->pushConstantSize > 0)
     {
-        VkPushConstantRange range = {
+        range = {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, 
             .offset = 0,
-            .size = pipelineInfo->pushConstantSize
+            .size = pipelineInfo->pushConstantSize,
         };
         pipelineLayoutInfo.pPushConstantRanges = &range;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
