@@ -54,15 +54,19 @@ VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex:
         renderData.transformRow1,
         renderData.transformRow2,
         float4(0.0f, 0.0f, 0.0f, 1.0f));
+
+    float4 worldPos = mul(modelMat4, float4(input.Pos, 1.0f));
+
     output.Normal = mul((float3x3)mul(globalData->view, modelMat4), input.Normal);
     output.UV = input.UV;
-    output.Pos = mul(globalData->projection, mul(globalData->view, mul(modelMat4, float4(input.Pos.xyz, 1.0))));
+    output.Pos = mul(globalData->projection, mul(globalData->view, worldPos));
     output.Factor = 1.0f;
     // Calculate view vectors required for lighting
-    float4 fragPos = mul(mul(globalData->view, modelMat4), float4(input.Pos.xyz, 1.0));
-    output.LightVec = globalData->lightPos.xyz - fragPos.xyz;
+    float4 fragPos = mul(globalData->view, worldPos);
+    float4 lightViewPos = mul(globalData->view, globalData->lightPos);
+    output.LightVec = lightViewPos.xyz - fragPos.xyz;
     output.ViewVec = -fragPos.xyz;
-    output.textureID = renderData.textureIDs_0_3.x;
+    output.textureID = renderData.textureIDs_0_3.x; 
     return output;
 }
 
@@ -78,5 +82,6 @@ float4 main(VSOutput input)
     float3 specular = pow(max(dot(R, V), 0.0), 16.0) * 0.75;
     // Sample from texture
     float3 color = g_textures[input.textureID].Sample(input.UV).rgb * input.Factor;
-    return float4(diffuse * color.rgb + specular, 1.0);
+    
+    return float4((diffuse + specular) * color.rgb, 1.0);
 }

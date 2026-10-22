@@ -746,6 +746,7 @@ void GfxCreateWindow()
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, GfxFramebufferResize);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 }
 
 void GfxCreateSurface()
@@ -1495,6 +1496,11 @@ void GfxDestroy()
     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, NULL);
     vkDestroyInstance(instance, nullptr);
     glfwDestroyWindow(window);
+}
+
+GLFWwindow * GfxGetWindow()
+{
+    return window;
 }
 
 void GfxCreateRenderableIndexBuffer()

@@ -1,9 +1,11 @@
 #include "resource.h"
 #include "vulkan_renderer.h"
 #include "asset_loader.h"
-
+#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
+#include <glm/gtx/euler_angles.hpp>
+
 #include <GLFW/glfw3.h>
 
 MeshID mMonkeyMesh;
@@ -21,67 +23,45 @@ PipelineID mPipelineID;
 
 Scene scene;
 
-int main()
+struct FlyCamera {
+    glm::vec3 pos;
+    glm::vec3 rotation;
+    glm::vec3 forward;
+};
+
+FlyCamera mCamera;
+glm::vec2 mLastMouse;
+
+
+float deltaTime = 0.0f;
+
+const float cameraSpeed = 2.0f;
+
+void MouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
-    GfxCreateScene(&scene);
-    GfxInit();
+    glm::vec2 mousePos = glm::vec2((float)xpos, (float)ypos);
 
-    MeshLoadInfo meshLoadInfo = {
-        .filename = "meshes/monkey.obj"};
-    TextureLoadInfo texLoadInfo =
-        {
-            .filename = "textures/bricks.ktx2"};
-    LoadTexture(&texLoadInfo, mTestTexture);
-    texLoadInfo.filename = "textures/bricks2.ktx2";
-    LoadTexture(&texLoadInfo, mTestTexture2);
-    texLoadInfo.filename = "textures/bricks3.ktx2";
-    LoadTexture(&texLoadInfo, mTestTexture3);
+    glm::vec2 delta = mLastMouse - mousePos;
 
-    RenderTargetCreateInfo rtCreateInfo = {
-        .name = "GBuffer Color",
-        .width = 1280,
-        .height = 720,
-        .format = VK_FORMAT_R8G8B8A8_SRGB,
-        .isDepth = false};
-    CreateRenderTarget(&rtCreateInfo, mGBufferColor);
-    rtCreateInfo.name = "GBuffer Depth";
-    rtCreateInfo.isDepth = true;
-    rtCreateInfo.format = VK_FORMAT_D32_SFLOAT;
-    CreateRenderTarget(&rtCreateInfo, mGBufferDepth);
+    mCamera.rotation.y -= delta.x * deltaTime * 5.0f;
+    mCamera.rotation.x += delta.y * deltaTime * 5.0f;
 
-    mMonkeyMesh = LoadMesh(&meshLoadInfo);
-    meshLoadInfo.filename = "meshes/cube.obj";
-    mCubeMesh = LoadMesh(&meshLoadInfo);
-    meshLoadInfo.filename = "meshes/sphere.obj";
-    mSphereMesh = LoadMesh(&meshLoadInfo);
+    if(mCamera.rotation.x > 89.0f)
+        mCamera.rotation.x = 89.0f;
+    if(mCamera.rotation.x < -89.0f)
+        mCamera.rotation.x = -89.0f;
 
-    GfxSetMesh(GetMesh(mMonkeyMesh));
+    mCamera.forward.x = cos(glm::radians(mCamera.rotation.y)) * cos(glm::radians(mCamera.rotation.x));
+    mCamera.forward.y = sin(glm::radians(mCamera.rotation.x));
+    mCamera.forward.z = sin(glm::radians(mCamera.rotation.y)) * cos(glm::radians(mCamera.rotation.x));
 
-    Texture textures[] = {mTestTexture, mTestTexture2, mTestTexture3};
+    mLastMouse = mousePos;
+}
 
-    GfxUpdateTextures(textures, 3, 0);
-
-    VkDescriptorSetLayout layouts[] =
-        {
-            GfxGetDescriptorSetLayoutTextures(),
-            GfxGetDescriptorSetLayoutRenderables(),
-            GfxGetDescriptorSetLayoutRenderableIndices(),
-    };
-
-    PipelineLoadInfo pipelineInfo =
-        {
-            .shaderFile = "shaders/test.spv",
-            .descSetLayouts = layouts,
-            .numLayouts = 3,
-            .flags = PIPELINE_FLAG_GRAPHICS
-        };
-    mPipelineID = LoadPipeline(&pipelineInfo);
-
-
-    GfxSetPipeline(GetPipeline(mPipelineID));
-
-    int monkeysPerAxis = 64;
-    float size = 0.02f;
+void GenerateScene()
+{
+    const int monkeysPerAxis = 64;
+    const float size = 0.02f;
     for (uint32_t i = 0; i < monkeysPerAxis; ++i)
     {
         for (uint32_t j = 0; j < monkeysPerAxis; ++j)
@@ -122,22 +102,111 @@ int main()
             }
         }
     }
+}
+
+int main()
+{
+    GfxCreateScene(&scene);
+    GfxInit();
+
+    MeshLoadInfo meshLoadInfo = {};
+    TextureLoadInfo texLoadInfo =
+    {
+        .filename = "textures/bricks.ktx2"
+    };
+    LoadTexture(&texLoadInfo, mTestTexture);
+    texLoadInfo.filename = "textures/bricks2.ktx2";
+    LoadTexture(&texLoadInfo, mTestTexture2);
+    texLoadInfo.filename = "textures/bricks3.ktx2";
+    LoadTexture(&texLoadInfo, mTestTexture3);
+
+    RenderTargetCreateInfo rtCreateInfo = 
+    {
+        .name = "GBuffer Color",
+        .width = 1280,
+        .height = 720,
+        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .isDepth = false
+    };
+    CreateRenderTarget(&rtCreateInfo, mGBufferColor);
+    rtCreateInfo.name = "GBuffer Depth";
+    rtCreateInfo.isDepth = true;
+    rtCreateInfo.format = VK_FORMAT_D32_SFLOAT;
+    CreateRenderTarget(&rtCreateInfo, mGBufferDepth);
+
+    meshLoadInfo.filename = "meshes/monkey.obj";
+    mMonkeyMesh = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/cube.obj";
+    mCubeMesh = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/sphere.obj";
+    mSphereMesh = LoadMesh(&meshLoadInfo);
+
+    GfxSetMesh(GetMesh(mMonkeyMesh));
+
+    Texture textures[] = {mTestTexture, mTestTexture2, mTestTexture3};
+
+    GfxUpdateTextures(textures, 3, 0);
+
+    VkDescriptorSetLayout layouts[] =
+        {
+            GfxGetDescriptorSetLayoutTextures(),
+            GfxGetDescriptorSetLayoutRenderables(),
+            GfxGetDescriptorSetLayoutRenderableIndices(),
+    };
+
+    PipelineLoadInfo pipelineInfo =
+        {
+            .shaderFile = "shaders/test.spv",
+            .descSetLayouts = layouts,
+            .numLayouts = 3,
+            .flags = PIPELINE_FLAG_GRAPHICS
+        };
+    mPipelineID = LoadPipeline(&pipelineInfo);
+    GfxSetPipeline(GetPipeline(mPipelineID));
+
+    GenerateScene();
 
     GfxUpdateScene(&scene);
     GfxSetRenderableData(&scene);
     GfxSortRenderables(scene);
 
-    float dt = 0.0f;
+    mCamera = {
+        .pos = glm::vec3(0.0f, 0.0f, 0.0f),
+        .rotation = glm::vec3(0.0f, 0.0f, 0.0f)
+    };
+
+    glfwSetCursorPosCallback(GfxGetWindow(), MouseCallback);
+
     float lastTime = 0.0f;
     while (GfxUpdate())
     {
-        dt = glfwGetTime() - lastTime;
+        deltaTime = glfwGetTime() - lastTime;
         lastTime = glfwGetTime();
-        glm::vec3 camPos = glm::vec3(cosf(glfwGetTime() * 0.25f) * 7.0f, 1.0f, sinf(glfwGetTime() * 0.25f) * 7.0f);
+
+        GLFWwindow * window = GfxGetWindow();
+        glm::vec3 right   = glm::cross(mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f)); 
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        {
+            mCamera.pos += mCamera.forward * deltaTime * cameraSpeed;
+        }else if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        {
+            mCamera.pos -= mCamera.forward * deltaTime * cameraSpeed;
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        {
+            mCamera.pos -= right * deltaTime * cameraSpeed;
+        }else if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        {
+            mCamera.pos += right * deltaTime * cameraSpeed;
+        }
+
+        glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
+
         GlobalData globalData;
-        globalData.proj = glm::perspective(glm::radians(45.0f), GfxGetAspectRatio(), 0.1f, 32.0f);
+        globalData.proj = glm::perspective(glm::radians(80.0f), GfxGetAspectRatio(), 0.01f, 64.0f);
         globalData.proj[1][1] *= -1;
-        globalData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        globalData.view = cameraView;
 
         GfxWaitForFrame();
         GfxSetGlobalData(globalData);

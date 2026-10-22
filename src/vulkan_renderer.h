@@ -4,6 +4,9 @@
 #include "volk.h"
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 #include "resource.h"
 #define FRAMES_IN_FLIGHT 2
@@ -29,6 +32,8 @@ int GfxRender();
 
 void GfxPreDestroy();
 void GfxDestroy();
+
+GLFWwindow * GfxGetWindow();
 
 void GfxWaitForFrame();
 
