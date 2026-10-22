@@ -80,8 +80,8 @@ int main()
 
     GfxSetPipeline(GetPipeline(mPipelineID));
 
-    int monkeysPerAxis = 4;
-    float size = 0.1f;
+    int monkeysPerAxis = 64;
+    float size = 0.02f;
     for (uint32_t i = 0; i < monkeysPerAxis; ++i)
     {
         for (uint32_t j = 0; j < monkeysPerAxis; ++j)
@@ -139,8 +139,8 @@ int main()
         globalData.proj[1][1] *= -1;
         globalData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
+        GfxWaitForFrame();
         GfxSetGlobalData(globalData);
-
         GfxRender();
     }
     GfxPreDestroy();

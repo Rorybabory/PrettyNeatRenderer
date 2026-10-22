@@ -30,6 +30,8 @@ int GfxRender();
 void GfxPreDestroy();
 void GfxDestroy();
 
+void GfxWaitForFrame();
+
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
 void GfxCreateDescriptorHeap();
 #endif

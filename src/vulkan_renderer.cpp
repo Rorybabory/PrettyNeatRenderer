@@ -1311,12 +1311,13 @@ void GfxSetRenderableData(Scene *pScene)
         // memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
     }
 }
-
-int GfxRender()
+void GfxWaitForFrame()
 {
     VK_CHECK(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
     VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
-
+}
+int GfxRender()
+{
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
 
     VkCommandBuffer cmd = commandBuffers[frameIndex];
