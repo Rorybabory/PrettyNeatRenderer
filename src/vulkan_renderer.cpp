@@ -1189,6 +1189,17 @@ void GfxSetCameraData(glm::mat4 & cameraView, float fov, float nearPlane, float 
     globalData.proj = glm::perspective(glm::radians(fov), GfxGetAspectRatio(), nearPlane, farPlane);
     globalData.proj[1][1] *= -1;
     globalData.view = cameraView;
+
+    //Calculate frustum planes
+    glm::mat4 vpt = glm::transpose(globalData.proj * globalData.view);
+
+    globalData.frustumPlanes[0] = (vpt[3] + vpt[0]); //left
+    globalData.frustumPlanes[1] = (vpt[3] - vpt[0]); //right
+    globalData.frustumPlanes[2] = (vpt[3] + vpt[1]); //bottom
+    globalData.frustumPlanes[3] = (vpt[3] - vpt[1]); //top
+    globalData.frustumPlanes[4] = (vpt[3] + vpt[2]); //near
+    globalData.frustumPlanes[5] = (vpt[3] - vpt[2]); //far
+
     memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
 

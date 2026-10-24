@@ -32,7 +32,44 @@ public struct GlobalData
     public float4x4 projection;
     public float4x4 view;
     public float4 lightPos;
-    public uint32_t selected;
 
     public float4 frustumPlanes[6];
 };
+
+public bool isInsideFrustum(float4 frustumPlanes[6], float4 transformRow0, float4 transformRow1, float4 transformRow2, float3 bbMin, float3 bbMax)
+{
+    float4x4 modelMat = float4x4(
+        transformRow0,
+        transformRow1,
+        transformRow2,
+        float4(0.0f, 0.0f, 0.0f, 1.0f));
+    float3 newMin = float3(transformRow0.w, transformRow1.w, transformRow2.w);
+    float3 newMax = float3(transformRow0.w, transformRow1.w, transformRow2.w);
+    for (uint i = 0; i < 3; ++i)
+    {
+        for (uint j = 0; j < 3; ++j)
+        {
+            float a = modelMat[i][j] * bbMin[j];
+            float b = modelMat[i][j] * bbMax[j];
+
+            newMin[i] += a < b ? a : b;
+            newMax[i] += a < b ? a : b;
+        }
+    }
+    for (size_t i = 0; i < 6; ++i) {
+        const float4 g = frustumPlanes[i];
+        if ((dot(g, float4(newMin.x, newMin.y, newMin.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMax.x, newMin.y, newMin.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMin.x, newMax.y, newMin.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMax.x, newMax.y, newMin.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMin.x, newMin.y, newMax.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMax.x, newMin.y, newMax.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMin.x, newMax.y, newMax.z, 1.0f)) < 0.0) &&
+            (dot(g, float4(newMax.x, newMax.y, newMax.z, 1.0f)) < 0.0))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
