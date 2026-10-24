@@ -8,7 +8,6 @@ struct VSInput
 };
 
 
-
 struct VSOutput
 {
     float4 Pos : SV_POSITION;
