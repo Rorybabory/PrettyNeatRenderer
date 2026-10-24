@@ -58,6 +58,8 @@ endif()
 
 # 3. Cross-Platform Shader Compilation (Replaces bash script)
 file(GLOB SHADER_SOURCES "shaders/*.vert" "shaders/*.frag" "shaders/*.comp" "shaders/*.slang")
+file(GLOB SHADER_MODULES "shaders/modules/*.slang")
+
 set(SHADER_PRODUCTS "")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
@@ -69,18 +71,25 @@ foreach(SHADER IN LISTS SHADER_SOURCES)
     add_custom_command(
         OUTPUT ${SPV_OUT}
         COMMAND ${SLANGC_EXECUTABLE} ${SHADER} 
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/shaders/modules"
             -target spirv 
             -profile glsl_460
             -emit-spirv-directly 
             -fvk-use-entrypoint-name 
+            -fvk-use-scalar-layout
             -o ${SPV_OUT}
-        DEPENDS ${SHADER}
+        DEPENDS ${SHADER} ${SHADER_MODULES}
         COMMENT "Compiling ${SHADER_NAME} to SPIR-V with Slang..."
     )
     list(APPEND SHADER_PRODUCTS ${SPV_OUT})
 endforeach()
 
-add_custom_target(Shaders ALL DEPENDS ${SHADER_PRODUCTS})
+add_custom_target(Shaders ALL
+    DEPENDS ${SHADER_PRODUCTS}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:Renderer>/shaders"
+)
 add_dependencies(Renderer Shaders)
 
 # 4. Texture Conversion

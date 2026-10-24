@@ -162,7 +162,7 @@ int main()
 
     PipelineLoadInfo pipelineInfo =
         {
-            .shaderFile = "shaders/mat_generic.spv",
+            .shaderFile = "shaders/matGeneric.spv",
             .descSetLayouts = layouts,
             .numLayouts = 3,
             .flags = PIPELINE_FLAG_GRAPHICS
@@ -210,14 +210,9 @@ int main()
 
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
 
-        GlobalData globalData;
-        globalData.proj = glm::perspective(glm::radians(80.0f), GfxGetAspectRatio(), 0.01f, 64.0f);
-        globalData.proj[1][1] *= -1;
-        globalData.view = cameraView;
-
         GfxWaitForFrame();
         GfxSortRenderables(scene);
-        GfxSetGlobalData(globalData);
+        GfxSetCameraData(cameraView, 80.0f, 0.01f, 64.0f);
         GfxRender();
     }
     GfxPreDestroy();

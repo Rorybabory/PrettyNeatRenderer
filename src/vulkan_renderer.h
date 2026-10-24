@@ -17,6 +17,7 @@ struct GlobalData
     glm::mat4 proj;
     glm::mat4 view;
     glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
+    glm::vec4 frustumPlanes[6];
 };
 
 struct GfxInstance;
@@ -51,7 +52,7 @@ void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 void GfxCreateScene(Scene *pScene);
 void GfxUpdateScene(Scene *pScene);
 
-void GfxSetGlobalData(GlobalData &globalData);
+void GfxSetCameraData(glm::mat4 & cameraView, float fov, float nearPlane, float farPlane);
 
 void GfxSetRenderableData(Scene *pScene);
 void GfxSortRenderables(Scene &scene);

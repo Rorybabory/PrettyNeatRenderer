@@ -25,12 +25,10 @@ typedef struct Mesh {
     uint32_t    firstIndex;
     int32_t     vertexOffset;
     uint32_t    firstInstance;
-
     uint32_t    meshOffset;
-    uint32_t    padding0;
-    uint32_t    padding1;
+    glm::vec3   bbMin;
+    glm::vec3   bbMax;
 } Mesh;
-
 enum TextureFlags
 {
     TEXTURE_FLAG_RENDER_TARGET

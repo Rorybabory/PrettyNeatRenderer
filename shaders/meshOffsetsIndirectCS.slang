@@ -17,3 +17,4 @@ void main(uniform uint32_t numMeshes, uint3 threadId: SV_DispatchThreadID)
         }
     }
 }
+  

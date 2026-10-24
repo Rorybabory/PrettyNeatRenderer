@@ -487,6 +487,7 @@ void GfxCreateDevice()
         .descriptorBindingPartiallyBound = true,
         .descriptorBindingVariableDescriptorCount = true,
         .runtimeDescriptorArray = true,
+        .scalarBlockLayout = true,
         .bufferDeviceAddress = true,
         .bufferDeviceAddressCaptureReplay = true,
     };
@@ -1182,8 +1183,12 @@ void GfxUpdateScene(Scene *pScene)
     renderableCount = pScene->numRenderables;
 }
 
-void GfxSetGlobalData(GlobalData &globalData)
+void GfxSetCameraData(glm::mat4 & cameraView, float fov, float nearPlane, float farPlane)
 {
+    GlobalData globalData;
+    globalData.proj = glm::perspective(glm::radians(fov), GfxGetAspectRatio(), nearPlane, farPlane);
+    globalData.proj[1][1] *= -1;
+    globalData.view = cameraView;
     memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
 

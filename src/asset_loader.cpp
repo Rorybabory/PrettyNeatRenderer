@@ -141,6 +141,9 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
         return -1;
     }
 
+    mesh.bbMin = glm::vec3(10000000.0f, 10000000.0f, 100000000.0f);
+    mesh.bbMax = glm::vec3(-10000000.0f, -10000000.0f, -100000000.0f);
+
     aiMesh *assimpMesh = scene->mMeshes[0];
 
     for (uint32_t i = 0; i < assimpMesh->mNumVertices; ++i)
@@ -148,6 +151,9 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
         cpuScratchVertices[i].mPos = {assimpMesh->mVertices[i].x, assimpMesh->mVertices[i].y, assimpMesh->mVertices[i].z};
         cpuScratchVertices[i].mNormal = {assimpMesh->mNormals[i].x, assimpMesh->mNormals[i].y, assimpMesh->mNormals[i].z};
         cpuScratchVertices[i].mUv = {assimpMesh->mTextureCoords[0][i].x, assimpMesh->mTextureCoords[0][i].y};
+
+        mesh.bbMin = glm::min(cpuScratchVertices[i].mPos, mesh.bbMin);
+        mesh.bbMax = glm::max(cpuScratchVertices[i].mPos, mesh.bbMax);
     }
     for (uint32_t i = 0; i < assimpMesh->mNumFaces; i++)
     {

@@ -11,8 +11,8 @@ public struct Mesh
     public uint32_t firstInstance;
 
     public Atomic<uint32_t> meshOffset;
-    public uint32_t padding0;
-    public uint32_t padding1;
+    public float3 bbMin;
+    public float3 bbMax;
 };
 
 public struct RenderableData
@@ -33,4 +33,6 @@ public struct GlobalData
     public float4x4 view;
     public float4 lightPos;
     public uint32_t selected;
+
+    public float4 frustumPlanes[6];
 };
