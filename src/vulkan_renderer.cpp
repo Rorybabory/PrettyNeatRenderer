@@ -366,7 +366,8 @@ void GfxSortRenderables(Scene &scene)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
+    vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
 
     //Assign Mesh Offsets for each mesh
     uint32_t numMeshes = GetNumMeshes();
@@ -389,7 +390,8 @@ void GfxSortRenderables(Scene &scene)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
-    vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
+    vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     VK_CHECK(vkEndCommandBuffer(cmd));
     VkQueue queue = GfxGetQueue();
@@ -849,6 +851,7 @@ void GfxCreateComputePipelines()
     pipelineInfo.shaderFile = "shaders/incrementIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutInc;
     pipelineInfo.numLayouts = 2;
+    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
     pipelineIncrementIndirectCS = LoadPipeline(&pipelineInfo);
 
 
@@ -871,7 +874,7 @@ void GfxCreateComputePipelines()
     pipelineInfo.shaderFile = "shaders/calculateIndicesIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutIndices;
     pipelineInfo.numLayouts = 3;
-    pipelineInfo.pushConstantSize = 0;
+    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
     pipelineIndicesIndirectCS = LoadPipeline(&pipelineInfo);
     spdlog::log(spdlog::level::info, "Created Compute Pipelines");
 

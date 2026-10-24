@@ -8,10 +8,25 @@ StructuredBuffer<RenderableData> renderableData;
 RWStructuredBuffer<Mesh> g_indirectData;
 
 [shader("compute")]
-[numthreads(1, 1, 1)]
-void main(uint3 threadId: SV_DispatchThreadID)
+[numthreads(64, 1, 1)]
+void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
 {
+    uint numRenderables;
+    uint stride;
+    renderableData.GetDimensions(numRenderables, stride);
+    if (threadId.x >= numRenderables)
+        return;
+    
     uint16_t meshID = renderableData[threadId.x].mesh;
-    uint32_t writeIndex = g_indirectData[meshID].meshOffset++;
-    renderableIndices[writeIndex] = threadId.x;
+    if (isInsideFrustum(
+        pGlobalData,
+        renderableData[threadId.x].transformRow0,
+        renderableData[threadId.x].transformRow1,
+        renderableData[threadId.x].transformRow2,
+        g_indirectData[meshID].bbMin, g_indirectData[meshID].bbMax)) 
+        {
+            uint32_t writeIndex = g_indirectData[meshID].meshOffset++;
+            renderableIndices[writeIndex] = threadId.x;
+        }
+    
 }

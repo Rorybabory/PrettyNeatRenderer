@@ -36,7 +36,7 @@ public struct GlobalData
     public float4 frustumPlanes[6];
 };
 
-public bool isInsideFrustum(float4 frustumPlanes[6], float4 transformRow0, float4 transformRow1, float4 transformRow2, float3 bbMin, float3 bbMax)
+public bool isInsideFrustum(GlobalData * pGlobalData, float4 transformRow0, float4 transformRow1, float4 transformRow2, float3 bbMin, float3 bbMax)
 {
     float4x4 modelMat = float4x4(
         transformRow0,
@@ -52,12 +52,12 @@ public bool isInsideFrustum(float4 frustumPlanes[6], float4 transformRow0, float
             float a = modelMat[i][j] * bbMin[j];
             float b = modelMat[i][j] * bbMax[j];
 
-            newMin[i] += a < b ? a : b;
-            newMax[i] += a < b ? a : b;
+            newMin[i] += min(a, b);
+            newMax[i] += max(a, b);
         }
     }
-    for (size_t i = 0; i < 6; ++i) {
-        const float4 g = frustumPlanes[i];
+    for (uint i = 0; i < 6; ++i) {
+        const float4 g = pGlobalData->frustumPlanes[i];
         if ((dot(g, float4(newMin.x, newMin.y, newMin.z, 1.0f)) < 0.0) &&
             (dot(g, float4(newMax.x, newMin.y, newMin.z, 1.0f)) < 0.0) &&
             (dot(g, float4(newMin.x, newMax.y, newMin.z, 1.0f)) < 0.0) &&

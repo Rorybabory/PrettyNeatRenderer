@@ -211,8 +211,8 @@ int main()
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
 
         GfxWaitForFrame();
-        GfxSortRenderables(scene);
         GfxSetCameraData(cameraView, 80.0f, 0.01f, 64.0f);
+        GfxSortRenderables(scene);
         GfxRender();
     }
     GfxPreDestroy();
