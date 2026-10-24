@@ -1,3 +1,4 @@
+import Common;
 
 struct VSInput
 {
@@ -6,25 +7,7 @@ struct VSInput
     float2 UV;
 };
 
-struct GlobalData
-{
-    float4x4 projection;
-    float4x4 view;
-    float4 lightPos;
-    uint32_t selected;
-};
 
-struct RenderableData
-{
-    uint16_t4 textureIDs_0_3;
-    uint16_t2 textureIDs_4_5;
-    uint16_t mesh;
-    uint16_t _padding;
-
-    float4 transformRow0;
-    float4 transformRow1;
-    float4 transformRow2;
-};
 
 struct VSOutput
 {

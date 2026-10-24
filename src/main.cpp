@@ -31,7 +31,7 @@ struct FlyCamera {
 
 FlyCamera mCamera;
 glm::vec2 mLastMouse;
-
+bool mFirstMouse = true;
 
 float deltaTime = 0.0f;
 
@@ -39,8 +39,14 @@ const float cameraSpeed = 2.0f;
 
 void MouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
+    
     glm::vec2 mousePos = glm::vec2((float)xpos, (float)ypos);
-
+    if (mFirstMouse)
+    {
+        mLastMouse = mousePos;
+        mFirstMouse = false;
+        return;
+    }
     glm::vec2 delta = mLastMouse - mousePos;
 
     mCamera.rotation.y -= delta.x * deltaTime * 5.0f;
@@ -156,7 +162,7 @@ int main()
 
     PipelineLoadInfo pipelineInfo =
         {
-            .shaderFile = "shaders/test.spv",
+            .shaderFile = "shaders/mat_generic.spv",
             .descSetLayouts = layouts,
             .numLayouts = 3,
             .flags = PIPELINE_FLAG_GRAPHICS
@@ -168,11 +174,12 @@ int main()
 
     GfxUpdateScene(&scene);
     GfxSetRenderableData(&scene);
-    GfxSortRenderables(scene);
+    
 
     mCamera = {
         .pos = glm::vec3(0.0f, 0.0f, 0.0f),
-        .rotation = glm::vec3(0.0f, 0.0f, 0.0f)
+        .rotation = glm::vec3(0.0f, 0.0f, 0.0f),
+        .forward = glm::vec3(1.0f, 0.0f, 0.0f)
     };
 
     glfwSetCursorPosCallback(GfxGetWindow(), MouseCallback);
@@ -184,7 +191,7 @@ int main()
         lastTime = glfwGetTime();
 
         GLFWwindow * window = GfxGetWindow();
-        glm::vec3 right   = glm::cross(mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f)); 
+        glm::vec3 right   = glm::normalize(glm::cross(mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f))); 
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         {
             mCamera.pos += mCamera.forward * deltaTime * cameraSpeed;
@@ -209,6 +216,7 @@ int main()
         globalData.view = cameraView;
 
         GfxWaitForFrame();
+        GfxSortRenderables(scene);
         GfxSetGlobalData(globalData);
         GfxRender();
     }

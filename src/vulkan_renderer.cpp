@@ -334,95 +334,79 @@ extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
 void GfxSortRenderables(Scene &scene)
 {
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+    memcpy(indirectDataAllocInfo[frameIndex].pMappedData, &meshRegistry, GetNumMeshes() * sizeof(Mesh));
+    memcpy(renderableDataAllocInfo[frameIndex].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
+    VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
+    VkCommandBufferBeginInfo beginInfo =
     {
-        memcpy(indirectDataAllocInfo[i].pMappedData, &meshRegistry, GetNumMeshes() * sizeof(Mesh));
-        memcpy(renderableDataAllocInfo[i].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
-    }
-    spdlog::log(spdlog::level::info, "Began Sorting Renderables");
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+    //Clear Specific values in indirect buffer
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
+    vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
+    VkMemoryBarrier2 barrier = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR
+    };
+    VkDependencyInfo dependencyInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .memoryBarrierCount = 1,
+        .pMemoryBarriers = &barrier
+    };
+
+    //Increment indirect data based on number of renderables with each mesh
+    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
+    vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+
+    //Assign Mesh Offsets for each mesh
+    uint32_t numMeshes = GetNumMeshes();
+    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
+    VkPushConstantsInfo pushInfo = {
+        .sType = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
+        .layout = GetPipeline(pipelineMeshOffsetsIndirectCS)->layout,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .size = sizeof(uint32_t),
+        .pValues = &numMeshes,
+    };
+    vkCmdPushConstants(cmd,GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
+    vkCmdDispatch(cmd, 1, 1, 1);
+
+    //Calculate Renderable Indices
+    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
+    vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
+    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+    VK_CHECK(vkEndCommandBuffer(cmd));
+    VkQueue queue = GfxGetQueue();
+    VkSubmitInfo submitInfo =
     {
-        VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
-        VkCommandBufferBeginInfo beginInfo =
-            {
-                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-        VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
-        spdlog::log(spdlog::level::info, "Started recording sorting command buffer");
-        //Clear Specific values in indirect buffer
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
-        vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
-        spdlog::log(spdlog::level::info, "recorded clear command sorting command buffer");
-        VkMemoryBarrier2 barrier = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR
-        };
-        VkDependencyInfo dependencyInfo = {
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .memoryBarrierCount = 1,
-            .pMemoryBarriers = &barrier
-        };
-
-        //Increment indirect data based on number of renderables with each mesh
-        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[i], 0, nullptr);
-        vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
-        spdlog::log(spdlog::level::info, "recorded increment indirect sorting command buffer");
-
-        //Assign Mesh Offsets for each mesh
-        uint32_t numMeshes = GetNumMeshes();
-        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[i], 0, nullptr);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
-        VkPushConstantsInfo pushInfo = {
-            .sType = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
-            .layout = GetPipeline(pipelineMeshOffsetsIndirectCS)->layout,
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            .size = sizeof(uint32_t),
-            .pValues = &numMeshes,
-        };
-        vkCmdPushConstants(cmd,GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
-        vkCmdDispatch(cmd, 1, 1, 1);
-        spdlog::log(spdlog::level::info, "recorded assign mesh offsets sorting command buffer");
-
-
-        //Calculate Renderable Indices
-        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[i], 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[i], 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[i], 0, nullptr);
-        vkCmdDispatch(cmd, scene.numRenderables, 1, 1);
-        spdlog::log(spdlog::level::info, "recorded renderable indices sorting command buffer");
-        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-
-        VK_CHECK(vkEndCommandBuffer(cmd));
-        spdlog::log(spdlog::level::info, "Finished recording sorting command buffer");
-        VkQueue queue = GfxGetQueue();
-        VkSubmitInfo submitInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &cmd
-        };
-        VkFence fence;
-        VkFenceCreateInfo fenceCreateInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        };
-        vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
-        spdlog::log(spdlog::level::info, "Submitted renderable sorting command buffers");
-        vkQueueSubmit(queue, 1, &submitInfo, fence);
-
-        vkWaitForFences(device, 1, &fence, true, UINT64_MAX);
-    }
-    spdlog::log(spdlog::level::info, "Finished Sorting Renderables");
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd
+    };
+    VkFence fence;
+    VkFenceCreateInfo fenceCreateInfo =
+    {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    };
+    vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
+    vkQueueSubmit(queue, 1, &submitInfo, fence);
+    vkWaitForFences(device, 1, &fence, true, UINT64_MAX);
 }
 
 void GfxSelectDevice()
@@ -747,6 +731,12 @@ void GfxCreateWindow()
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, GfxFramebufferResize);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (glfwRawMouseMotionSupported())
+    {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
+
+  
 }
 
 void GfxCreateSurface()
