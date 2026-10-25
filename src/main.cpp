@@ -36,7 +36,7 @@ bool mFirstMouse = true;
 float deltaTime = 0.0f;
 
 const float cameraSpeed = 0.5f;
-
+const float mouseSensitivity = 0.1f;
 void MouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
     
@@ -49,8 +49,8 @@ void MouseCallback(GLFWwindow* window, double xpos, double ypos)
     }
     glm::vec2 delta = mLastMouse - mousePos;
 
-    mCamera.rotation.y -= delta.x * deltaTime * 5.0f;
-    mCamera.rotation.x += delta.y * deltaTime * 5.0f;
+    mCamera.rotation.y -= delta.x * mouseSensitivity;
+    mCamera.rotation.x += delta.y * mouseSensitivity;
 
     if(mCamera.rotation.x > 89.0f)
         mCamera.rotation.x = 89.0f;
