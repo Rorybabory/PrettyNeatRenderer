@@ -46,7 +46,7 @@ void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 void GfxCreateScene(Scene *pScene);
 void GfxUpdateScene(Scene *pScene);
 
-void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane);
+void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum);
 
 void GfxSetRenderableData(Scene *pScene);
 void GfxSortRenderables(Scene &scene);

@@ -235,10 +235,13 @@ int main()
             mCamera.pos += right * deltaTime * cameraSpeed;
         }
 
+        bool updateFrustum = !(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
+
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
 
+
         GfxWaitForFrame();
-        GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f);
+        GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f, updateFrustum);
         GfxSortRenderables(scene);
         GfxRender();
     }

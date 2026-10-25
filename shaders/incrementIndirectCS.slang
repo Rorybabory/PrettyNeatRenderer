@@ -31,7 +31,7 @@ void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
                                           renderableData[threadId.x].transformRow2.w,
                                           1.0f);
 
-            float distance = length(renderablePos - pGlobalData->cameraPos) * 4.0f;
+            float distance = length(renderablePos - pGlobalData->cameraPos) * 1.25f;
 
             uint index = clamp(uint(floor(distance+1)), 0, numLODs);
             if (distance > 1.0)
@@ -44,5 +44,4 @@ void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
     } else {
         renderableData[threadId.x].meshOverride = 0xFFFF;
     }
-        
 }

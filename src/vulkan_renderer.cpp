@@ -66,6 +66,8 @@ VmaAllocation depthImageAllocation;
 VkCommandPool commandPool;
 VkCommandBuffer commandBuffers[FRAMES_IN_FLIGHT];
 
+glm::vec4 frustumPlanes[6];
+
 // Sync Objects
 VkSemaphore imageAcquiredSemaphores[FRAMES_IN_FLIGHT];
 VkSemaphore *renderCompleteSemaphores;
@@ -1181,7 +1183,7 @@ void GfxUpdateScene(Scene *pScene)
     renderableCount = pScene->numRenderables;
 }
 
-void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane)
+void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum)
 {
     GlobalData globalData;
     globalData.proj = glm::perspective(glm::radians(fov), GfxGetAspectRatio(), nearPlane, farPlane);
@@ -1191,13 +1193,18 @@ void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, fl
     
     //Calculate frustum planes
     glm::mat4 vpt = glm::transpose(globalData.proj * globalData.view);
+    if (updateFrustum)
+    {
+        frustumPlanes[0] = (vpt[3] + vpt[0]); //left
+        frustumPlanes[1] = (vpt[3] - vpt[0]); //right
+        frustumPlanes[2] = (vpt[3] + vpt[1]); //bottom
+        frustumPlanes[3] = (vpt[3] - vpt[1]); //top
+        frustumPlanes[4] = (vpt[3] + vpt[2]); //near
+        frustumPlanes[5] = (vpt[3] - vpt[2]); //far
+    }
+    
 
-    globalData.frustumPlanes[0] = (vpt[3] + vpt[0]); //left
-    globalData.frustumPlanes[1] = (vpt[3] - vpt[0]); //right
-    globalData.frustumPlanes[2] = (vpt[3] + vpt[1]); //bottom
-    globalData.frustumPlanes[3] = (vpt[3] - vpt[1]); //top
-    globalData.frustumPlanes[4] = (vpt[3] + vpt[2]); //near
-    globalData.frustumPlanes[5] = (vpt[3] - vpt[2]); //far
+    memcpy(globalData.frustumPlanes, frustumPlanes, sizeof(glm::vec4) * 6);
 
     memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
