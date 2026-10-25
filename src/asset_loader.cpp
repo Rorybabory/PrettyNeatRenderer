@@ -205,6 +205,13 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
 
     vkQueueSubmit(queue, 1, &submitInfo, nullptr);
 
+    // Add the LODs
+    for (uint32_t i = 0; i < loadInfo->numLods; ++i)
+    {
+        mesh.lodMeshes[i] = loadInfo->pLods[i];
+    }
+    mesh.numLods = loadInfo->numLods;
+
     meshVertexBufferSize += vertexSize;
     meshIndexBufferSize += indexSize;
     meshRegistry[meshRegistryCount++] = mesh;

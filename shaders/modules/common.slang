@@ -13,6 +13,9 @@ public struct Mesh
     public Atomic<uint32_t> meshOffset;
     public float3 bbMin;
     public float3 bbMax;
+    public uint16_t lodMeshes[5];
+    public uint16_t numLods;
+    public uint16_t padding;
 };
 
 public struct RenderableData
@@ -20,7 +23,7 @@ public struct RenderableData
     public uint16_t4 textureIDs_0_3;
     public uint16_t2 textureIDs_4_5;
     public uint16_t mesh;
-    public uint16_t _padding;
+    public uint16_t meshOverride;
 
     public float4 transformRow0;
     public float4 transformRow1;
@@ -32,8 +35,8 @@ public struct GlobalData
     public float4x4 projection;
     public float4x4 view;
     public float4 lightPos;
-
     public float4 frustumPlanes[6];
+    public float4 cameraPos;
 };
 
 public bool isInsideFrustum(GlobalData * pGlobalData, float4 transformRow0, float4 transformRow1, float4 transformRow2, float3 bbMin, float3 bbMax)

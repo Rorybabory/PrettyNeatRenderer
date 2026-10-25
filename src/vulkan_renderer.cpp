@@ -73,7 +73,6 @@ VkFence fences[FRAMES_IN_FLIGHT];
 
 Pipeline *pipeline = NULL;
 Pipeline *pipelineLayout = NULL;
-Mesh *mesh = NULL;
 
 uint32_t frameIndex = 0;
 uint32_t imageIndex = 0;
@@ -226,10 +225,6 @@ void GfxSetupDebugMessanger()
 void GfxSetPipeline(Pipeline *_pipeline)
 {
     pipeline = _pipeline;
-}
-void GfxSetMesh(Mesh *m)
-{
-    mesh = m;
 }
 void GfxCreateInstance()
 {
@@ -1186,13 +1181,14 @@ void GfxUpdateScene(Scene *pScene)
     renderableCount = pScene->numRenderables;
 }
 
-void GfxSetCameraData(glm::mat4 & cameraView, float fov, float nearPlane, float farPlane)
+void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane)
 {
     GlobalData globalData;
     globalData.proj = glm::perspective(glm::radians(fov), GfxGetAspectRatio(), nearPlane, farPlane);
     globalData.proj[1][1] *= -1;
     globalData.view = cameraView;
-
+    globalData.cameraPos = glm::vec4(cameraPos.x, cameraPos.y, cameraPos.z, 1.0f);
+    
     //Calculate frustum planes
     glm::mat4 vpt = glm::transpose(globalData.proj * globalData.view);
 

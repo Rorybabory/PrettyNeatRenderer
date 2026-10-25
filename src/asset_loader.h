@@ -9,6 +9,8 @@ struct MeshLoadInfo
 {
     const char *filename;
     uint32_t flags;
+    MeshID * pLods = NULL;
+    uint16_t numLods = 0;
 };
 MeshID LoadMesh(MeshLoadInfo *loadInfo);
 Mesh *GetMesh(MeshID id);

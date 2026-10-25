@@ -35,7 +35,7 @@ bool mFirstMouse = true;
 
 float deltaTime = 0.0f;
 
-const float cameraSpeed = 2.0f;
+const float cameraSpeed = 0.5f;
 
 void MouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -140,14 +140,41 @@ int main()
     rtCreateInfo.format = VK_FORMAT_D32_SFLOAT;
     CreateRenderTarget(&rtCreateInfo, mGBufferDepth);
 
+    meshLoadInfo.filename = "meshes/monkey_lod_1.obj";
+    MeshID mMonkeyMeshLod1 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/monkey_lod_2.obj";
+    MeshID mMonkeyMeshLod2 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/monkey_lod_3.obj";
+    MeshID mMonkeyMeshLod3 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/monkey_lod_4.obj";
+    MeshID mMonkeyMeshLod4 = LoadMesh(&meshLoadInfo);
+    MeshID mMonkeyLods[] = { mMonkeyMeshLod1, mMonkeyMeshLod2, mMonkeyMeshLod3, mMonkeyMeshLod4 };
+
     meshLoadInfo.filename = "meshes/monkey.obj";
+    meshLoadInfo.numLods = 4;
+    meshLoadInfo.pLods = mMonkeyLods;
     mMonkeyMesh = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.numLods = 0;
+
     meshLoadInfo.filename = "meshes/cube.obj";
     mCubeMesh = LoadMesh(&meshLoadInfo);
+
+
+    meshLoadInfo.filename = "meshes/sphere_lod_1.obj";
+    MeshID mSphereMeshLod1 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/sphere_lod_2.obj";
+    MeshID mSphereMeshLod2 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/sphere_lod_3.obj";
+    MeshID mSphereMeshLod3 = LoadMesh(&meshLoadInfo);
+    meshLoadInfo.filename = "meshes/sphere_lod_4.obj";
+    MeshID mSphereMeshLod4 = LoadMesh(&meshLoadInfo);
+    
+    MeshID mSphereLods[] = { mSphereMeshLod1, mSphereMeshLod2, mSphereMeshLod3, mSphereMeshLod4 };
     meshLoadInfo.filename = "meshes/sphere.obj";
+    meshLoadInfo.numLods = 4;
+    meshLoadInfo.pLods = mSphereLods;
     mSphereMesh = LoadMesh(&meshLoadInfo);
 
-    GfxSetMesh(GetMesh(mMonkeyMesh));
 
     Texture textures[] = {mTestTexture, mTestTexture2, mTestTexture3};
 
@@ -211,7 +238,7 @@ int main()
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
 
         GfxWaitForFrame();
-        GfxSetCameraData(cameraView, 80.0f, 0.01f, 64.0f);
+        GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f);
         GfxSortRenderables(scene);
         GfxRender();
     }

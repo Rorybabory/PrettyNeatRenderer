@@ -28,7 +28,11 @@ typedef struct Mesh {
     uint32_t    meshOffset;
     glm::vec3   bbMin;
     glm::vec3   bbMax;
+    uint16_t    lodMeshes[5];
+    uint16_t    numLods;
+    uint16_t    padding;
 } Mesh;
+
 enum TextureFlags
 {
     TEXTURE_FLAG_RENDER_TARGET
@@ -67,7 +71,7 @@ struct RenderableData
 {
     uint16_t textureIDs[6];
     uint16_t mesh;
-    uint16_t _padding;
+    uint16_t meshOverride;
 
     glm::vec4 transformRow0;
     glm::vec4 transformRow1;
@@ -78,4 +82,13 @@ struct Scene
 {
     RenderableData *pRenderableData;
     uint32_t numRenderables = 0;
+};
+
+struct GlobalData
+{
+    glm::mat4 proj;
+    glm::mat4 view;
+    glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
+    glm::vec4 frustumPlanes[6];
+    glm::vec4 cameraPos{0.0f, 0.0f, 0.0f, 1.0f};
 };
