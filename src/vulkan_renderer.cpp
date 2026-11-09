@@ -31,6 +31,10 @@
 
 #include "asset_loader.h"
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+
 #define WINDOW_BASE_WIDTH 1280
 #define WINDOW_BASE_HEIGHT 720
 
@@ -125,6 +129,7 @@ DescriptorHeapData heapData;
 #else
 
 VkDescriptorPool descriptorPool;
+VkDescriptorPool imguiDescriptorPool;
 
 VkDescriptorSetLayout descriptorSetLayoutTex;
 VkDescriptorSet descriptorSetTex;
@@ -886,7 +891,12 @@ VkQueue GfxGetQueue()
 {
     return graphicsQueue;
 }
-
+void GfxImguiNewFrame()
+{
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+}
 void GfxCreateDescriptorPool()
 {
     VkDescriptorPoolSize poolSizes[] =
@@ -904,6 +914,25 @@ void GfxCreateDescriptorPool()
             .poolSizeCount = 2,
             .pPoolSizes = poolSizes};
     VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descriptorPool));
+
+
+    VkDescriptorPoolSize imguiPoolSizes[11] = {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 64 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 64 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 64 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 64 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 64 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 64 },
+    };
+    descPoolCreateInfo.poolSizeCount = 11;
+    descPoolCreateInfo.pPoolSizes = imguiPoolSizes;
+    VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &imguiDescriptorPool));
+
 }
 VkDeviceSize alignUp(VkDeviceSize value, VkDeviceSize alignment)
 {
@@ -1209,6 +1238,36 @@ void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, fl
     memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
 }
 
+void GfxCreateImGui()
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.ApiVersion = VK_API_VERSION_1_3;
+    initInfo.Instance = instance;
+    initInfo.PhysicalDevice = physicalDevice;
+    initInfo.Device = device;
+    initInfo.QueueFamily = queueFamily;
+    initInfo.Queue = graphicsQueue;
+    initInfo.PipelineCache = VK_NULL_HANDLE;
+    initInfo.DescriptorPool = imguiDescriptorPool;
+    initInfo.MinImageCount = 2;
+    initInfo.ImageCount = swapchainImageCount;
+    initInfo.Allocator = nullptr;
+    initInfo.CheckVkResultFn = nullptr;
+    initInfo.UseDynamicRendering = true;
+    VkFormat swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchainFormat;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = GfxGetDepthFormat();
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    ImGui_ImplVulkan_Init(&initInfo);
+}
+
 void GfxInit()
 {
     GfxCreateWindow();
@@ -1224,6 +1283,7 @@ void GfxInit()
     AssetLoaderInit();
     GfxCreateShaderData();
     GfxCreateDescriptorPool();
+    GfxCreateImGui();
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     GfxCreateDescriptorHeap();
 #endif
@@ -1404,6 +1464,9 @@ int GfxRender()
 
     GfxRenderScene(cmd);
 
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+
     vkCmdEndRendering(cmd);
 
     VkImageMemoryBarrier2 barrierPresent{
@@ -1461,6 +1524,10 @@ void GfxPreDestroy()
 
 void GfxDestroy()
 {
+    vkDeviceWaitIdle(device);
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     AssetLoaderDestroy();
 

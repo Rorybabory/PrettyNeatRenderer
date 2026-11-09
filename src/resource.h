@@ -18,7 +18,7 @@ struct Vertex
 };
 
 typedef uint16_t MeshID;
-
+typedef uint16_t TextureID;
 typedef struct Mesh {
     uint32_t    indexCount;
     uint32_t    instanceCount;
@@ -35,7 +35,9 @@ typedef struct Mesh {
 
 enum TextureFlags
 {
-    TEXTURE_FLAG_RENDER_TARGET
+    TEXTURE_FLAG_NONE = 0x00000000,
+    TEXTURE_FLAG_COLOR_ATTACHMENT = 0x00000001,
+    TEXTURE_FLAG_DEPTH_STENCIL_ATTACHMENT = 0x00000002
 };
 
 struct Texture
@@ -47,6 +49,7 @@ struct Texture
     VkImageLayout imageLayout;
     VkFormat format;
     uint32_t layerCount;
+    TextureFlags flags;
 };
 
 typedef uint16_t PipelineID;

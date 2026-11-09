@@ -1,5 +1,5 @@
 #pragma once
-
+#include "resource.h"
 enum RGResourceStage 
 {
     RG_STAGE_VERTEX_SHADER,
@@ -19,3 +19,20 @@ enum RGResourceType
     RG_RESOURCE_BUFFER,
     RG_RESOURCE_IMAGE
 };
+struct VkCommandBuffer;
+struct RGRenderPass;
+
+typedef struct RGRenderPass
+{
+    void(*pass)( VkCommandBuffer cmd, RGRenderPass * pRenderPass );
+    
+    TextureID * pColorAttachments;
+    uint32_t numColorAttachments;
+
+    TextureID * pShaderReads;
+    uint32_t numShaderReads;
+
+    TextureID depthStencilAttachment;
+
+    
+} RGRenderPass;

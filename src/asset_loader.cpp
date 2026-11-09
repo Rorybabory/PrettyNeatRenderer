@@ -227,20 +227,22 @@ bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
 {
     // Create Image
     VkImageCreateInfo texImgInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = (VkFormat)createInfo->format,
-            .extent = {.width = createInfo->width, .height = createInfo->height, .depth = 1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            .initialLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL};
+    {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = (VkFormat)createInfo->format,
+        .extent = {.width = createInfo->width, .height = createInfo->height, .depth = 1},
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .initialLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL
+    };
     VmaAllocationCreateInfo allocCreateInfo =
-        {
-            .usage = VMA_MEMORY_USAGE_AUTO};
+    {
+        .usage = VMA_MEMORY_USAGE_AUTO
+    };
     VK_CHECK(vmaCreateImage(allocator, &texImgInfo, &allocCreateInfo, &texture.image, &texture.allocation, nullptr));
     vmaSetAllocationName(allocator, texture.allocation, createInfo->name);
 
@@ -262,15 +264,18 @@ bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .format = texImgInfo.format,
             .subresourceRange =
-                {
-                    .aspectMask = static_cast<VkImageAspectFlags>(createInfo->isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
-                    .levelCount = 1,
-                    .layerCount = 1}};
+            {
+                .aspectMask = static_cast<VkImageAspectFlags>(createInfo->isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
+                .levelCount = 1,
+                .layerCount = 1
+            }
+        };
     VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &texture.imageView));
 
     texture.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     texture.format = texImgInfo.format;
     texture.layerCount = 1;
+    texture.flags = createInfo->isDepth ? TEXTURE_FLAG_DEPTH_STENCIL_ATTACHMENT : TEXTURE_FLAG_COLOR_ATTACHMENT;
 }
 
 bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
@@ -417,6 +422,7 @@ bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
     texture.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     texture.format = texImgInfo.format;
     texture.layerCount = ktxTexture->numLayers;
+    texture.flags = TEXTURE_FLAG_NONE;
     ktxTexture_Destroy(ktxTexture);
     vkDestroyFence(device, fenceOneTime, nullptr);
     return true;

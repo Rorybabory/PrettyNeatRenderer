@@ -13,11 +13,47 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 1. Find Dependencies
+include(FetchContent)
+
 find_package(Vulkan REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(ktx CONFIG REQUIRED)
+
+# Fetch Dear ImGui (newest release)
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.93.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+
+target_include_directories(imgui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_compile_definitions(imgui PUBLIC
+    IMGUI_IMPL_VULKAN_USE_VOLK
+)
+
+target_link_libraries(imgui PUBLIC
+    Vulkan::Vulkan
+    glfw
+)
 
 # Find the tools required for custom commands
 find_program(SLANGC_EXECUTABLE NAMES slangc REQUIRED)
@@ -50,6 +86,7 @@ target_link_libraries(Renderer PRIVATE
     GPUOpen::VulkanMemoryAllocator
     assimp::assimp
     KTX::ktx
+    imgui
 )
 
 if(MSVC)

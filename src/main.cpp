@@ -7,6 +7,7 @@
 #include <glm/gtx/euler_angles.hpp>
 
 #include <GLFW/glfw3.h>
+#include <imgui.h>
 
 MeshID mMonkeyMesh;
 MeshID mCubeMesh;
@@ -239,7 +240,11 @@ int main()
 
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
 
-
+        GfxImguiNewFrame();
+        ImGui::Begin("Test Imgui window");
+        ImGui::Text("Hello World!!!");
+        ImGui::End();
+        ImGui::Render(); 
         GfxWaitForFrame();
         GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f, updateFrustum);
         GfxSortRenderables(scene);
