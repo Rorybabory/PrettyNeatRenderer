@@ -158,7 +158,6 @@ VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
 
 VkDrawIndexedIndirectCommand renderableIndirectCommands[MAX_MESHES];
 
-
 uint32_t renderableCount = 0;
 
 PipelineID pipelineClearIndirectCS;
@@ -340,13 +339,12 @@ void GfxSortRenderables(Scene &scene)
     memcpy(renderableDataAllocInfo[frameIndex].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
     VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
     VkCommandBufferBeginInfo beginInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-    };
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
-    //Clear Specific values in indirect buffer
+    // Clear Specific values in indirect buffer
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
     vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
@@ -355,15 +353,13 @@ void GfxSortRenderables(Scene &scene)
         .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
         .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR,
         .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR
-    };
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR};
     VkDependencyInfo dependencyInfo = {
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .memoryBarrierCount = 1,
-        .pMemoryBarriers = &barrier
-    };
+        .pMemoryBarriers = &barrier};
 
-    //Increment indirect data based on number of renderables with each mesh
+    // Increment indirect data based on number of renderables with each mesh
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
@@ -371,7 +367,7 @@ void GfxSortRenderables(Scene &scene)
     vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
     vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
 
-    //Assign Mesh Offsets for each mesh
+    // Assign Mesh Offsets for each mesh
     uint32_t numMeshes = GetNumMeshes();
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
@@ -383,10 +379,10 @@ void GfxSortRenderables(Scene &scene)
         .size = sizeof(uint32_t),
         .pValues = &numMeshes,
     };
-    vkCmdPushConstants(cmd,GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
     vkCmdDispatch(cmd, 1, 1, 1);
 
-    //Calculate Renderable Indices
+    // Calculate Renderable Indices
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
@@ -398,15 +394,14 @@ void GfxSortRenderables(Scene &scene)
     VK_CHECK(vkEndCommandBuffer(cmd));
     VkQueue queue = GfxGetQueue();
     VkSubmitInfo submitInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd
-    };
+        {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &cmd};
     VkFence fence;
     VkFenceCreateInfo fenceCreateInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
     };
     vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
     vkQueueSubmit(queue, 1, &submitInfo, fence);
@@ -740,8 +735,6 @@ void GfxCreateWindow()
     {
         glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
     }
-
-  
 }
 
 void GfxCreateSurface()
@@ -832,35 +825,29 @@ void GfxCreateComputePipelines()
 {
     spdlog::log(spdlog::level::info, "Began Creating Compute Pipelines");
     VkDescriptorSetLayout layoutClear[] =
-    {
-        descriptorSetLayoutIndirect
-    };
-    PipelineLoadInfo pipelineInfo = 
-    {
-        .shaderFile = "shaders/clearIndirectCS.spv",
-        .descSetLayouts = layoutClear,
-        .numLayouts = 1,
-        .flags = PIPELINE_FLAG_COMPUTE
-    };
+        {
+            descriptorSetLayoutIndirect};
+    PipelineLoadInfo pipelineInfo =
+        {
+            .shaderFile = "shaders/clearIndirectCS.spv",
+            .descSetLayouts = layoutClear,
+            .numLayouts = 1,
+            .flags = PIPELINE_FLAG_COMPUTE};
     pipelineClearIndirectCS = LoadPipeline(&pipelineInfo);
 
-
     VkDescriptorSetLayout layoutInc[] =
-    {
-        descriptorSetLayoutIndirect,
-        descriptorSetLayoutRenderables
-    };
+        {
+            descriptorSetLayoutIndirect,
+            descriptorSetLayoutRenderables};
     pipelineInfo.shaderFile = "shaders/incrementIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutInc;
     pipelineInfo.numLayouts = 2;
     pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
     pipelineIncrementIndirectCS = LoadPipeline(&pipelineInfo);
 
-
     VkDescriptorSetLayout layoutMeshOffsets[] =
-    {
-        descriptorSetLayoutIndirect
-    };
+        {
+            descriptorSetLayoutIndirect};
     pipelineInfo.shaderFile = "shaders/meshOffsetsIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutMeshOffsets;
     pipelineInfo.numLayouts = 1;
@@ -868,18 +855,16 @@ void GfxCreateComputePipelines()
     pipelineMeshOffsetsIndirectCS = LoadPipeline(&pipelineInfo);
 
     VkDescriptorSetLayout layoutIndices[] =
-    {
-        descriptorSetLayoutRenderableIndices,
-        descriptorSetLayoutRenderables,
-        descriptorSetLayoutIndirect
-    };
+        {
+            descriptorSetLayoutRenderableIndices,
+            descriptorSetLayoutRenderables,
+            descriptorSetLayoutIndirect};
     pipelineInfo.shaderFile = "shaders/calculateIndicesIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutIndices;
     pipelineInfo.numLayouts = 3;
     pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
     pipelineIndicesIndirectCS = LoadPipeline(&pipelineInfo);
     spdlog::log(spdlog::level::info, "Created Compute Pipelines");
-
 }
 
 VkCommandPool GfxGetCommandPool()
@@ -915,24 +900,22 @@ void GfxCreateDescriptorPool()
             .pPoolSizes = poolSizes};
     VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descriptorPool));
 
-
     VkDescriptorPoolSize imguiPoolSizes[11] = {
-        { VK_DESCRIPTOR_TYPE_SAMPLER, 64 },
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 },
-        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 64 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 64 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 64 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 64 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64 },
-        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64 },
-        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64 },
-        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 64 },
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 64},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 64},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 64},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 64},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 64},
     };
     descPoolCreateInfo.poolSizeCount = 11;
     descPoolCreateInfo.pPoolSizes = imguiPoolSizes;
     VK_CHECK(vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &imguiDescriptorPool));
-
 }
 VkDeviceSize alignUp(VkDeviceSize value, VkDeviceSize alignment)
 {
@@ -1197,12 +1180,10 @@ void GfxUpdateScene(Scene *pScene)
                 .pBufferInfo = &bufferDescriptor};
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 
-
         bufferDescriptor.buffer = renderableIndexBuffers[i];
         bufferDescriptor.range = sizeof(uint32_t) * pScene->numRenderables;
         writeDescSet.dstSet = descriptorSetsRenderableIndices[i];
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
-
 
         bufferDescriptor.buffer = indirectDataBuffers[i];
         bufferDescriptor.range = sizeof(Mesh) * MAX_MESHES;
@@ -1212,26 +1193,25 @@ void GfxUpdateScene(Scene *pScene)
     renderableCount = pScene->numRenderables;
 }
 
-void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum)
+void GfxSetCameraData(glm::mat4 &cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum)
 {
     GlobalData globalData;
     globalData.proj = glm::perspective(glm::radians(fov), GfxGetAspectRatio(), nearPlane, farPlane);
     globalData.proj[1][1] *= -1;
     globalData.view = cameraView;
     globalData.cameraPos = glm::vec4(cameraPos.x, cameraPos.y, cameraPos.z, 1.0f);
-    
-    //Calculate frustum planes
+
+    // Calculate frustum planes
     glm::mat4 vpt = glm::transpose(globalData.proj * globalData.view);
     if (updateFrustum)
     {
-        frustumPlanes[0] = (vpt[3] + vpt[0]); //left
-        frustumPlanes[1] = (vpt[3] - vpt[0]); //right
-        frustumPlanes[2] = (vpt[3] + vpt[1]); //bottom
-        frustumPlanes[3] = (vpt[3] - vpt[1]); //top
-        frustumPlanes[4] = (vpt[3] + vpt[2]); //near
-        frustumPlanes[5] = (vpt[3] - vpt[2]); //far
+        frustumPlanes[0] = (vpt[3] + vpt[0]); // left
+        frustumPlanes[1] = (vpt[3] - vpt[0]); // right
+        frustumPlanes[2] = (vpt[3] + vpt[1]); // bottom
+        frustumPlanes[3] = (vpt[3] - vpt[1]); // top
+        frustumPlanes[4] = (vpt[3] + vpt[2]); // near
+        frustumPlanes[5] = (vpt[3] - vpt[2]); // far
     }
-    
 
     memcpy(globalData.frustumPlanes, frustumPlanes, sizeof(glm::vec4) * 6);
 
@@ -1260,7 +1240,7 @@ void GfxCreateImGui()
     initInfo.CheckVkResultFn = nullptr;
     initInfo.UseDynamicRendering = true;
     VkFormat swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
     initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchainFormat;
     initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = GfxGetDepthFormat();
@@ -1466,7 +1446,6 @@ int GfxRender()
 
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
-
     vkCmdEndRendering(cmd);
 
     VkImageMemoryBarrier2 barrierPresent{
@@ -1577,7 +1556,7 @@ void GfxDestroy()
     glfwDestroyWindow(window);
 }
 
-GLFWwindow * GfxGetWindow()
+GLFWwindow *GfxGetWindow()
 {
     return window;
 }
@@ -1656,8 +1635,7 @@ void GfxCreateIndirectBuffer()
         {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = sizeof(Mesh) * MAX_MESHES,
-            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT 
-            | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
+            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
     VmaAllocationCreateInfo allocCreateInfo =
         {
             .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |

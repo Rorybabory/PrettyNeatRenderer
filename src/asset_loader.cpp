@@ -57,6 +57,17 @@ uint32_t *cpuScratchIndices = NULL;
 
 char *scratchShaderSrc = NULL;
 
+const char *textureDebugNames[UINT16_MAX];
+
+const char *GetTextureDebugName(TextureID id)
+{
+    return textureDebugNames[id];
+}
+void SetTextureDebugName(TextureID id, const char *name)
+{
+    textureDebugNames[id] = name;
+}
+
 VkBuffer *GetMeshVertexBuffer()
 {
     return &meshVertexBuffer;
@@ -227,22 +238,20 @@ bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
 {
     // Create Image
     VkImageCreateInfo texImgInfo =
-    {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format = (VkFormat)createInfo->format,
-        .extent = {.width = createInfo->width, .height = createInfo->height, .depth = 1},
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        .initialLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL
-    };
+        {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = (VkFormat)createInfo->format,
+            .extent = {.width = createInfo->width, .height = createInfo->height, .depth = 1},
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .initialLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL};
     VmaAllocationCreateInfo allocCreateInfo =
-    {
-        .usage = VMA_MEMORY_USAGE_AUTO
-    };
+        {
+            .usage = VMA_MEMORY_USAGE_AUTO};
     VK_CHECK(vmaCreateImage(allocator, &texImgInfo, &allocCreateInfo, &texture.image, &texture.allocation, nullptr));
     vmaSetAllocationName(allocator, texture.allocation, createInfo->name);
 
@@ -264,18 +273,17 @@ bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .format = texImgInfo.format,
             .subresourceRange =
-            {
-                .aspectMask = static_cast<VkImageAspectFlags>(createInfo->isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
-                .levelCount = 1,
-                .layerCount = 1
-            }
-        };
+                {
+                    .aspectMask = static_cast<VkImageAspectFlags>(createInfo->isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT),
+                    .levelCount = 1,
+                    .layerCount = 1}};
     VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &texture.imageView));
 
     texture.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     texture.format = texImgInfo.format;
     texture.layerCount = 1;
     texture.flags = createInfo->isDepth ? TEXTURE_FLAG_DEPTH_STENCIL_ATTACHMENT : TEXTURE_FLAG_COLOR_ATTACHMENT;
+    texture.debug_name = createInfo->name;
 }
 
 bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
@@ -423,6 +431,7 @@ bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
     texture.format = texImgInfo.format;
     texture.layerCount = ktxTexture->numLayers;
     texture.flags = TEXTURE_FLAG_NONE;
+    texture.debug_name = loadInfo->filename;
     ktxTexture_Destroy(ktxTexture);
     vkDestroyFence(device, fenceOneTime, nullptr);
     return true;
@@ -446,7 +455,7 @@ Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shad
     if (pipelineInfo->pushConstantSize > 0)
     {
         range = {
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, 
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
             .offset = 0,
             .size = pipelineInfo->pushConstantSize,
         };
@@ -463,8 +472,7 @@ Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shad
             .module = shaderModule,
             .pName = "main",
         },
-        .layout = pipeline.layout 
-    };
+        .layout = pipeline.layout};
     vkCreateComputePipelines(device, nullptr, 1, &pipelineCreateInfo, nullptr, &pipeline.pipeline);
     return pipeline;
 }
@@ -647,8 +655,9 @@ PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo)
     else if (pipelineInfo->flags & PIPELINE_FLAG_COMPUTE)
     {
         pipeline = LoadComputePipeline(pipelineInfo, shaderModule);
-    }else {
-        
+    }
+    else
+    {
     }
 
     vkDestroyShaderModule(device, shaderModule, nullptr);

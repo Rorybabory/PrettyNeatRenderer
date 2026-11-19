@@ -2,15 +2,13 @@
 #include <cstring>
 #include <spdlog/spdlog.h>
 
-
-
-RGRenderPassID RGAddRenderPass(RGRenderGraph & renderGraph, RGRenderPass & renderPass)
+RGRenderPassID RGAddRenderPass(RGRenderGraph &renderGraph, RGRenderPass &renderPass)
 {
     renderGraph.pRenderPasses[renderGraph.numRenderPasses] = renderPass;
-    return (RGRenderPassID) renderGraph.numRenderPasses++;
+    return (RGRenderPassID)renderGraph.numRenderPasses++;
 }
 
-RGRenderPassID RGGetRenderPass(RGRenderGraph & renderGraph, const char * name)
+RGRenderPassID RGGetRenderPass(RGRenderGraph &renderGraph, const char *name)
 {
     for (RGRenderPassID i = 0; i < renderGraph.numRenderPasses; ++i)
     {
@@ -22,7 +20,7 @@ RGRenderPassID RGGetRenderPass(RGRenderGraph & renderGraph, const char * name)
     return RG_INVALID_RENDER_PASS;
 }
 
-void RGCompileRenderGraph(RGRenderGraph & renderGraph, RGCompiledRenderGraph & compiledRenderGraph)
+void RGCompileRenderGraph(RGRenderGraph &renderGraph, RGCompiledRenderGraph &compiledRenderGraph)
 {
     uint32_t remainingPasses = renderGraph.numRenderPasses;
 
@@ -39,12 +37,13 @@ void RGCompileRenderGraph(RGRenderGraph & renderGraph, RGCompiledRenderGraph & c
     {
         for (uint32_t i = 0; i < renderGraph.numRenderPasses; ++i)
         {
-            if (renderPassesRun[i] == true) continue;
+            if (renderPassesRun[i] == true)
+                continue;
 
             bool needsBarrier = false;
             bool ranDependencies = true;
 
-            RGRenderPass * pass = &renderGraph.pRenderPasses[i];
+            RGRenderPass *pass = &renderGraph.pRenderPasses[i];
 
             for (uint32_t j = 0; j < pass->numColorAttachments; ++j)
             {
@@ -65,7 +64,7 @@ void RGCompileRenderGraph(RGRenderGraph & renderGraph, RGCompiledRenderGraph & c
                     }
                 }
             }
-            if (!needsBarrier && pass->depthStencilAttachment != UINT16_MAX )
+            if (!needsBarrier && pass->depthStencilAttachment != UINT16_MAX)
             {
                 if (resourceStates[pass->depthStencilAttachment] != RG_USAGE_DEPTH_STENCIL_ATTACHMENT)
                 {
@@ -82,11 +81,11 @@ void RGCompileRenderGraph(RGRenderGraph & renderGraph, RGCompiledRenderGraph & c
             }
             if (ranDependencies)
             {
-                //Render pass is good to go, add it to the compiled render graph
+                // Render pass is good to go, add it to the compiled render graph
                 renderPassesRun[i] = true;
-                
+
                 RGCompiledStep step = {};
-                
+
                 step.renderPass = *pass;
                 step.numBarriers = 0;
                 compiledRenderGraph.steps[compiledRenderGraph.numSteps] = step;
@@ -98,7 +97,7 @@ void RGCompileRenderGraph(RGRenderGraph & renderGraph, RGCompiledRenderGraph & c
     }
 }
 
-void RGDebugCompiledRenderGraph(RGCompiledRenderGraph & compiledRenderGraph)
+void RGDebugCompiledRenderGraph(RGCompiledRenderGraph &compiledRenderGraph)
 {
     spdlog::info("------------------------------ Begin Debugging Render Graph ------------------------------");
     for (uint32_t i = 0; i < compiledRenderGraph.numSteps; ++i)
@@ -106,17 +105,17 @@ void RGDebugCompiledRenderGraph(RGCompiledRenderGraph & compiledRenderGraph)
         spdlog::info("Render Pass: {}", compiledRenderGraph.steps[i].renderPass.name);
     }
     spdlog::info("------------------------------ End Debugging Render Graph --------------------------------");
-
 }
 
 void RGTestRenderGraph()
 {
     RGRenderGraph renderGraph;
     RGCompiledRenderGraph compiledRenderGraph;
-    
+
     RGRenderPass testPass1 = {};
     testPass1.name = "Test Pass 1";
     testPass1.numDependencies = 0;
+
     RGRenderPassID id1 = RGAddRenderPass(renderGraph, testPass1);
 
     RGRenderPass testPass2 = {};

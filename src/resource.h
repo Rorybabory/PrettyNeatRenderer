@@ -19,18 +19,19 @@ struct Vertex
 
 typedef uint16_t MeshID;
 typedef uint16_t TextureID;
-typedef struct Mesh {
-    uint32_t    indexCount;
-    uint32_t    instanceCount;
-    uint32_t    firstIndex;
-    int32_t     vertexOffset;
-    uint32_t    firstInstance;
-    uint32_t    meshOffset;
-    glm::vec3   bbMin;
-    glm::vec3   bbMax;
-    uint16_t    lodMeshes[5];
-    uint16_t    numLods;
-    uint16_t    padding;
+typedef struct Mesh
+{
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    int32_t vertexOffset;
+    uint32_t firstInstance;
+    uint32_t meshOffset;
+    glm::vec3 bbMin;
+    glm::vec3 bbMax;
+    uint16_t lodMeshes[5];
+    uint16_t numLods;
+    uint16_t padding;
 } Mesh;
 
 enum TextureFlags
@@ -50,6 +51,7 @@ struct Texture
     VkFormat format;
     uint32_t layerCount;
     TextureFlags flags;
+    const char *debug_name;
 };
 
 typedef uint16_t PipelineID;
