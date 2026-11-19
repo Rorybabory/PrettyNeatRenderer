@@ -1,6 +1,7 @@
 #include "resource.h"
 #include "vulkan_renderer.h"
 #include "asset_loader.h"
+#include "render_graph.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
@@ -113,6 +114,7 @@ void GenerateScene()
 
 int main()
 {
+    RGTestRenderGraph();
     GfxCreateScene(&scene);
     GfxInit();
 

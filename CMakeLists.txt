@@ -68,6 +68,7 @@ add_executable(Renderer
     src/vulkan_renderer.cpp 
     src/vma_impl.cpp 
     src/asset_loader.cpp
+    src/render_graph.cpp
     src/vkutils.c 
     src/volk.c 
     src/spirv_reflect.c
