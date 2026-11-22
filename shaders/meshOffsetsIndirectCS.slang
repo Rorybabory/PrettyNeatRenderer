@@ -8,16 +8,15 @@ struct MeshOffsetsPushConstants
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
-void main(uniform MeshOffsetsPushConstants push_constants, uint3 threadId: SV_DispatchThreadID)
+void main(uniform MeshOffsetsPushConstants pushConstants, uint3 threadId: SV_DispatchThreadID)
 {
     if (threadId.x == 0) {
         uint32_t currentOffset = 0;
-        for (uint i = 0; i < push_constants.numMeshes; ++i)
+        for (uint i = 0; i < pushConstants.numMeshes; ++i)
         {
-            push_constants.g_indirectData[i].firstInstance = currentOffset;
-            push_constants.g_indirectData[i].meshOffset = currentOffset;
-            currentOffset += push_constants.g_indirectData[i].instanceCount.load();
+            pushConstants.g_indirectData[i].firstInstance = currentOffset;
+            pushConstants.g_indirectData[i].meshOffset = currentOffset;
+            currentOffset += pushConstants.g_indirectData[i].instanceCount.load();
         }
     }
 }
-  
