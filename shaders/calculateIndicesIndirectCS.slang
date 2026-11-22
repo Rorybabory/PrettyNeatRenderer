@@ -4,12 +4,10 @@ import Common;
 RWStructuredBuffer<uint32_t> renderableIndices;
 [[vk::binding(0, 1)]]
 RWStructuredBuffer<RenderableData> renderableData;
-[[vk::binding(0, 2)]]
-RWStructuredBuffer<Mesh> g_indirectData;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
+void main(uniform Mesh * g_indirectData, uint3 threadId: SV_DispatchThreadID)
 {
     uint numRenderables;
     uint stride;

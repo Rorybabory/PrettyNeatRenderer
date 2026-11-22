@@ -140,8 +140,6 @@ VkDescriptorSetLayout descriptorSetLayoutRenderableIndices;
 VkDescriptorSet descriptorSetsRenderableIndices[FRAMES_IN_FLIGHT];
 uint32_t renderableIndices[MAX_RENDERABLES];
 
-VkDescriptorSetLayout descriptorSetLayoutIndirect;
-VkDescriptorSet descriptorSetsIndirect[FRAMES_IN_FLIGHT];
 
 VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
@@ -150,14 +148,18 @@ VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
 VkBuffer indirectDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation indirectDataAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo indirectDataAllocInfo[FRAMES_IN_FLIGHT];
+VkDeviceAddress indirectBufferAddress[FRAMES_IN_FLIGHT];
 
 VkBuffer renderableIndexBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableIndexAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
 
-VkDrawIndexedIndirectCommand renderableIndirectCommands[MAX_MESHES];
-
 uint32_t renderableCount = 0;
+struct MeshOffsetsPushConstants
+{
+    VkDeviceAddress indirectAddress;
+    uint32_t numMeshes;
+};
 
 PipelineID pipelineClearIndirectCS;
 PipelineID pipelineIncrementIndirectCS;
@@ -344,7 +346,7 @@ void GfxSortRenderables(Scene &scene)
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
     // Clear Specific values in indirect buffer
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectBufferAddress[frameIndex]);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
     vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
     VkMemoryBarrier2 barrier = {
@@ -361,24 +363,27 @@ void GfxSortRenderables(Scene &scene)
     // Increment indirect data based on number of renderables with each mesh
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
+    VkDeviceAddress incrementIndirectPushConstants[2] =
+    {
+        globalDataBuffers[frameIndex].deviceAddress,
+        indirectBufferAddress[frameIndex]
+    };
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress) * 2, incrementIndirectPushConstants);
     vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
 
     // Assign Mesh Offsets for each mesh
     uint32_t numMeshes = GetNumMeshes();
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, 0, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
-    VkPushConstantsInfo pushInfo = {
-        .sType = VK_STRUCTURE_TYPE_PUSH_CONSTANTS_INFO,
-        .layout = GetPipeline(pipelineMeshOffsetsIndirectCS)->layout,
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .size = sizeof(uint32_t),
-        .pValues = &numMeshes,
+
+    MeshOffsetsPushConstants meshOffsetsPushConstants = 
+    {
+        .indirectAddress = indirectBufferAddress[frameIndex],
+        .numMeshes = numMeshes
     };
-    vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &numMeshes);
+
+    vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(MeshOffsetsPushConstants), &meshOffsetsPushConstants);
     vkCmdDispatch(cmd, 1, 1, 1);
 
     // Calculate Renderable Indices
@@ -386,8 +391,7 @@ void GfxSortRenderables(Scene &scene)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 2, 1, &descriptorSetsIndirect[frameIndex], 0, nullptr);
-    vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectBufferAddress[frameIndex]);
     vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -820,47 +824,46 @@ void GfxCreateCommandBuffer()
     VK_CHECK(vkAllocateCommandBuffers(device, &cmdBufferAllocInfo, &commandBuffers[0]));
 }
 
+
+
 void GfxCreateComputePipelines()
 {
     spdlog::log(spdlog::level::info, "Began Creating Compute Pipelines");
-    VkDescriptorSetLayout layoutClear[] =
-        {
-            descriptorSetLayoutIndirect};
+    
     PipelineLoadInfo pipelineInfo =
-        {
-            .shaderFile = "shaders/clearIndirectCS.spv",
-            .descSetLayouts = layoutClear,
-            .numLayouts = 1,
-            .flags = PIPELINE_FLAG_COMPUTE};
+    {
+        .shaderFile = "shaders/clearIndirectCS.spv",
+        .descSetLayouts = nullptr,
+        .numLayouts = 0,
+        .flags = PIPELINE_FLAG_COMPUTE,
+        .pushConstantSize = sizeof(VkDeviceAddress)
+    };
     pipelineClearIndirectCS = LoadPipeline(&pipelineInfo);
 
     VkDescriptorSetLayout layoutInc[] =
-        {
-            descriptorSetLayoutIndirect,
-            descriptorSetLayoutRenderables};
+    {
+        descriptorSetLayoutRenderables
+    };
     pipelineInfo.shaderFile = "shaders/incrementIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutInc;
-    pipelineInfo.numLayouts = 2;
-    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
+    pipelineInfo.numLayouts = 1;
+    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress) + sizeof(VkDeviceAddress);
     pipelineIncrementIndirectCS = LoadPipeline(&pipelineInfo);
 
-    VkDescriptorSetLayout layoutMeshOffsets[] =
-        {
-            descriptorSetLayoutIndirect};
     pipelineInfo.shaderFile = "shaders/meshOffsetsIndirectCS.spv";
-    pipelineInfo.descSetLayouts = layoutMeshOffsets;
-    pipelineInfo.numLayouts = 1;
-    pipelineInfo.pushConstantSize = sizeof(uint32_t);
+    pipelineInfo.descSetLayouts = nullptr;
+    pipelineInfo.numLayouts = 0;
+    pipelineInfo.pushConstantSize = sizeof(MeshOffsetsPushConstants);
     pipelineMeshOffsetsIndirectCS = LoadPipeline(&pipelineInfo);
 
     VkDescriptorSetLayout layoutIndices[] =
-        {
-            descriptorSetLayoutRenderableIndices,
-            descriptorSetLayoutRenderables,
-            descriptorSetLayoutIndirect};
+    {
+        descriptorSetLayoutRenderableIndices,
+        descriptorSetLayoutRenderables
+    };
     pipelineInfo.shaderFile = "shaders/calculateIndicesIndirectCS.spv";
     pipelineInfo.descSetLayouts = layoutIndices;
-    pipelineInfo.numLayouts = 3;
+    pipelineInfo.numLayouts = 2;
     pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
     pipelineIndicesIndirectCS = LoadPipeline(&pipelineInfo);
     spdlog::log(spdlog::level::info, "Created Compute Pipelines");
@@ -1182,11 +1185,6 @@ void GfxUpdateScene(Scene *pScene)
         bufferDescriptor.buffer = renderableIndexBuffers[i];
         bufferDescriptor.range = sizeof(uint32_t) * pScene->numRenderables;
         writeDescSet.dstSet = descriptorSetsRenderableIndices[i];
-        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
-
-        bufferDescriptor.buffer = indirectDataBuffers[i];
-        bufferDescriptor.range = sizeof(Mesh) * MAX_MESHES;
-        writeDescSet.dstSet = descriptorSetsIndirect[i];
         vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
     }
     renderableCount = pScene->numRenderables;
@@ -1634,7 +1632,7 @@ void GfxCreateIndirectBuffer()
         {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = sizeof(Mesh) * MAX_MESHES,
-            .usage = VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
+            .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT};
     VmaAllocationCreateInfo allocCreateInfo =
         {
             .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
@@ -1653,8 +1651,11 @@ void GfxCreateIndirectBuffer()
                 &indirectDataAllocInfo[i]));
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = indirectDataBuffers[i]};
-
+            .buffer = indirectDataBuffers[i]
+        };
+        
+        indirectBufferAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
+        
         char allocName[96];
         sprintf(allocName, "Indirect Data Allocation: %i", i);
 
@@ -1741,38 +1742,6 @@ void GfxCreateBindlessDesc()
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
         VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableIndices[i]));
-    }
-
-    // Mesh Indirect Descriptor Set/Layout
-    VkDescriptorSetLayoutBinding descLayoutBindingIndirect = {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = MAX_MESHES,
-        .stageFlags = VK_SHADER_STAGE_ALL};
-    VkDescriptorSetLayoutCreateInfo descLayoutIndirectCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &descBindingFlags,
-        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-        .bindingCount = 1,
-        .pBindings = &descLayoutBindingRenderable};
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutIndirectCreateInfo, NULL, &descriptorSetLayoutIndirect));
-
-    variableDescCount = MAX_MESHES;
-    variableDescCountAllocInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
-            .descriptorSetCount = 1,
-            .pDescriptorCounts = &variableDescCount};
-    VkDescriptorSetAllocateInfo indirectDescSetAllocInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .pNext = &variableDescCountAllocInfo,
-            .descriptorPool = descriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &descriptorSetLayoutIndirect};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(vkAllocateDescriptorSets(device, &indirectDescSetAllocInfo, &descriptorSetsIndirect[i]));
     }
 }
 

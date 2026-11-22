@@ -2,13 +2,17 @@ import Common;
 
 
 [[vk::binding(0, 0)]]
-RWStructuredBuffer<Mesh> g_indirectData;
-[[vk::binding(0, 1)]]
 RWStructuredBuffer<RenderableData> renderableData;
+
+struct IncrementIndirectPushConstants
+{
+    GlobalData *g_GlobalData;
+    Mesh *g_indirectData;
+};
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
+void main(uniform IncrementIndirectPushConstants pushConstants, uint3 threadId: SV_DispatchThreadID)
 {
     uint numRenderables;
     uint stride;
@@ -17,13 +21,13 @@ void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
         return;
     uint16_t meshID = renderableData[threadId.x].mesh;
     if (isInsideFrustum(
-            pGlobalData,
+            pushConstants.g_GlobalData,
             renderableData[threadId.x].transformRow0,
             renderableData[threadId.x].transformRow1,
             renderableData[threadId.x].transformRow2,
-            g_indirectData[meshID].bbMin, g_indirectData[meshID].bbMax))
+            pushConstants.g_indirectData[meshID].bbMin, pushConstants.g_indirectData[meshID].bbMax))
     {
-        uint16_t numLODs = g_indirectData[meshID].numLods;
+        uint16_t numLODs = pushConstants.g_indirectData[meshID].numLods;
         if (numLODs > 0)
         {
             float4 renderablePos = float4(renderableData[threadId.x].transformRow0.w,
@@ -31,16 +35,16 @@ void main(uniform GlobalData * pGlobalData, uint3 threadId: SV_DispatchThreadID)
                                           renderableData[threadId.x].transformRow2.w,
                                           1.0f);
 
-            float distance = length(renderablePos - pGlobalData->cameraPos) * 1.25f;
+            float distance = length(renderablePos - pushConstants.g_GlobalData->cameraPos) * 1.25f;
 
             uint index = clamp(uint(floor(distance+1)), 0, numLODs);
             if (distance > 1.0)
             {
-                meshID = g_indirectData[meshID].lodMeshes[index-1];
+                meshID = pushConstants.g_indirectData[meshID].lodMeshes[index-1];
             }
         }
         renderableData[threadId.x].meshOverride = meshID;
-        g_indirectData[renderableData[threadId.x].meshOverride].instanceCount++;
+        pushConstants.g_indirectData[renderableData[threadId.x].meshOverride].instanceCount++;
     } else {
         renderableData[threadId.x].meshOverride = 0xFFFF;
     }

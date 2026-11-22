@@ -74,7 +74,7 @@ void RGCompileRenderGraph(RGRenderGraph &renderGraph, RGCompiledRenderGraph &com
             }
             for (uint32_t j = 0; j < pass->numDependencies; ++j)
             {
-                if (!renderPassesRun[pass->dependencies[j]])
+                if (!renderPassesRun[pass->pDependencies[j]])
                 {
                     ranDependencies = false;
                 }
@@ -126,8 +126,8 @@ void RGTestRenderGraph()
     RGRenderPass testPass3 = {};
     testPass3.name = "Test Pass 3";
     testPass3.numDependencies = 2;
-    testPass3.dependencies[0] = id1;
-    testPass3.dependencies[1] = id2;
+    testPass3.pDependencies[0] = id1;
+    testPass3.pDependencies[1] = id2;
     RGAddRenderPass(renderGraph, testPass3);
 
     RGCompileRenderGraph(renderGraph, compiledRenderGraph);

@@ -1,19 +1,22 @@
 import Common;
 
-[[vk::binding(0, 0)]]
-RWStructuredBuffer<Mesh> g_indirectData;
+struct MeshOffsetsPushConstants
+{
+    Mesh *g_indirectData;
+    uint32_t numMeshes;
+};
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
-void main(uniform uint32_t numMeshes, uint3 threadId: SV_DispatchThreadID)
+void main(uniform MeshOffsetsPushConstants push_constants, uint3 threadId: SV_DispatchThreadID)
 {
     if (threadId.x == 0) {
         uint32_t currentOffset = 0;
-        for (uint i = 0; i < numMeshes; ++i)
+        for (uint i = 0; i < push_constants.numMeshes; ++i)
         {
-            g_indirectData[i].firstInstance = currentOffset;
-            g_indirectData[i].meshOffset = currentOffset;
-            currentOffset += g_indirectData[i].instanceCount.load();
+            push_constants.g_indirectData[i].firstInstance = currentOffset;
+            push_constants.g_indirectData[i].meshOffset = currentOffset;
+            currentOffset += push_constants.g_indirectData[i].instanceCount.load();
         }
     }
 }

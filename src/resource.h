@@ -21,6 +21,8 @@ struct Vertex
 
 typedef uint16_t MeshID;
 typedef uint16_t TextureID;
+typedef uint16_t BufferID; //Currently Unused
+
 typedef struct Mesh
 {
     uint32_t indexCount;
