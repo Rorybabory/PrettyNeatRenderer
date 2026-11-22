@@ -38,7 +38,6 @@
 #define WINDOW_BASE_WIDTH 1280
 #define WINDOW_BASE_HEIGHT 720
 
-#define MAX_TEXTURES 512
 
 const char *projectName = "Rory's Renderer!!!";
 const bool enableValidationLayers = false;

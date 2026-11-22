@@ -74,7 +74,7 @@ typedef struct RGCompiledRenderGraph
 {
     RGCompiledStep steps[RG_MAX_RENDER_PASSES];
     uint32_t numSteps = 0;
-};
+} RGCompiledRenderGraph;
 
 RGRenderPassID RGGetRenderPass(RGRenderGraph &renderGraph, const char *name);
 RGRenderPassID RGAddRenderPass(RGRenderGraph &renderGraph, RGRenderPass &renderPass);

@@ -48,6 +48,9 @@ uint32_t pipelineRegistryCount = 0;
 Mesh meshRegistry[MAX_MESHES];
 uint32_t meshRegistryCount = 0;
 
+Texture textureRegistry[MAX_TEXTURES];
+uint32_t textureRegistryCount = 0;
+
 const uint32_t MAX_VERTICES = 1 << 18;
 const uint32_t MAX_INDICES = 1 << 18;
 const uint64_t MAX_SHADER_SIZE = 1 << 20;
@@ -234,8 +237,9 @@ Mesh *GetMesh(MeshID id)
     return &meshRegistry[id];
 }
 
-bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
+TextureID CreateRenderTarget(RenderTargetCreateInfo *createInfo)
 {
+    Texture texture;
     // Create Image
     VkImageCreateInfo texImgInfo =
         {
@@ -284,11 +288,15 @@ bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture)
     texture.layerCount = 1;
     texture.flags = createInfo->isDepth ? TEXTURE_FLAG_DEPTH_STENCIL_ATTACHMENT : TEXTURE_FLAG_COLOR_ATTACHMENT;
     texture.debug_name = createInfo->name;
+
+    textureRegistry[textureRegistryCount] = texture;
+    GfxUpdateTextures(&texture, 1, textureRegistryCount);
+    return (TextureID)textureRegistryCount++;
 }
 
-bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
+TextureID LoadTexture(TextureLoadInfo *loadInfo)
 {
-
+    Texture texture;
     // Load Texture
     ktxTexture *ktxTexture{nullptr};
     ktxTexture_CreateFromNamedFile(loadInfo->filename, KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTexture);
@@ -296,7 +304,7 @@ bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
     if (ktxTexture == NULL)
     {
         spdlog::error("AssetLoader: Failed to load: {}", loadInfo->filename);
-        return false;
+        return INVALID_TEXTURE;
     }
 
     // Create Image
@@ -421,12 +429,14 @@ bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
             .viewType = VK_IMAGE_VIEW_TYPE_2D,
             .format = texImgInfo.format,
             .subresourceRange =
-                {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .levelCount = 1,
-                    .layerCount = 1}};
+            {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .levelCount = 1,
+                .layerCount = 1
+            }
+        };
     VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &texture.imageView));
-
+    
     texture.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     texture.format = texImgInfo.format;
     texture.layerCount = ktxTexture->numLayers;
@@ -434,13 +444,20 @@ bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture)
     texture.debug_name = loadInfo->filename;
     ktxTexture_Destroy(ktxTexture);
     vkDestroyFence(device, fenceOneTime, nullptr);
-    return true;
+
+    textureRegistry[textureRegistryCount] = texture;
+    GfxUpdateTextures(&texture, 1, textureRegistryCount);
+
+    return (TextureID)textureRegistryCount++;
 }
-void DestroyTexture(Texture &texture)
+void ClearTextureRegistry()
 {
-    vmaDestroyImage(allocator, texture.image, texture.allocation);
-    vkDestroySampler(device, texture.sampler, nullptr);
-    vkDestroyImageView(device, texture.imageView, nullptr);
+    for (uint32_t i = 0; i < textureRegistryCount; ++i)
+    {
+        vmaDestroyImage(allocator, textureRegistry[i].image, textureRegistry[i].allocation);
+        vkDestroySampler(device, textureRegistry[i].sampler, nullptr);
+        vkDestroyImageView(device, textureRegistry[i].imageView, nullptr);
+    }
 }
 Pipeline LoadComputePipeline(PipelineLoadInfo *pipelineInfo, VkShaderModule shaderModule)
 {

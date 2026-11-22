@@ -2,5 +2,6 @@
     "cmake.configureArgs": [
         "-DCMAKE_TOOLCHAIN_FILE=C:/Users/lambe/source/repos/vcpkg/scripts/buildsystems/vcpkg.cmake"
     ],
-    "cmake.buildDirectory": "${workspaceFolder}/build"
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "editor.formatOnSave": false
 }

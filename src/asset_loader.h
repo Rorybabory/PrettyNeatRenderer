@@ -21,8 +21,9 @@ struct TextureLoadInfo
     const char *filename;
     uint32_t flags;
 };
-bool LoadTexture(TextureLoadInfo *loadInfo, Texture &texture);
-void DestroyTexture(Texture &texture);
+TextureID LoadTexture(TextureLoadInfo *loadInfo);
+void ClearTextureRegistry();
+
 
 struct RenderTargetCreateInfo
 {
@@ -32,7 +33,7 @@ struct RenderTargetCreateInfo
     uint32_t format;
     bool isDepth;
 };
-bool CreateRenderTarget(RenderTargetCreateInfo *createInfo, Texture &texture);
+TextureID CreateRenderTarget(RenderTargetCreateInfo *createInfo);
 
 enum PipelineFlags
 {

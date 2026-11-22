@@ -5,9 +5,11 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan_core.h>
 
-#define MAX_RENDERABLES 262144
+#define MAX_RENDERABLES 1048576
 #define MAX_PIPELINES 65535
 #define MAX_MESHES 65535
+#define MAX_TEXTURES 512
+#define INVALID_TEXTURE UINT16_MAX
 #define MAX_DESCRIPTOR_SETS 4
 
 struct Vertex
