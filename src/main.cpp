@@ -182,16 +182,16 @@ int main()
     VkDescriptorSetLayout layouts[] =
         {
             GfxGetDescriptorSetLayoutTextures(),
-            GfxGetDescriptorSetLayoutRenderables(),
-            GfxGetDescriptorSetLayoutRenderableIndices(),
     };
 
     PipelineLoadInfo pipelineInfo =
         {
             .shaderFile = "shaders/matGeneric.spv",
             .descSetLayouts = layouts,
-            .numLayouts = 3,
-            .flags = PIPELINE_FLAG_GRAPHICS};
+            .numLayouts = 1,
+            .flags = PIPELINE_FLAG_GRAPHICS,
+            .pushConstantSize = sizeof(VkDeviceAddress) * 3
+        };
     mPipelineID = LoadPipeline(&pipelineInfo);
     GfxSetPipeline(GetPipeline(mPipelineID));
 

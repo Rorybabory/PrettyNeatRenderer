@@ -1,38 +1,34 @@
 import Common;
 
 
-[[vk::binding(0, 0)]]
-RWStructuredBuffer<RenderableData> renderableData;
-
 struct IncrementIndirectPushConstants
 {
     GlobalData *g_GlobalData;
     Mesh *g_indirectData;
+    RenderableData *renderableData;
+    uint32_t numRenderables;
 };
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void main(uniform IncrementIndirectPushConstants pushConstants, uint3 threadId: SV_DispatchThreadID)
 {
-    uint numRenderables;
-    uint stride;
-    renderableData.GetDimensions(numRenderables, stride);
-    if (threadId.x >= numRenderables)
+    if (threadId.x >= pushConstants.numRenderables)
         return;
-    uint16_t meshID = renderableData[threadId.x].mesh;
+    uint16_t meshID = pushConstants.renderableData[threadId.x].mesh;
     if (isInsideFrustum(
             pushConstants.g_GlobalData,
-            renderableData[threadId.x].transformRow0,
-            renderableData[threadId.x].transformRow1,
-            renderableData[threadId.x].transformRow2,
+            pushConstants.renderableData[threadId.x].transformRow0,
+            pushConstants.renderableData[threadId.x].transformRow1,
+            pushConstants.renderableData[threadId.x].transformRow2,
             pushConstants.g_indirectData[meshID].bbMin, pushConstants.g_indirectData[meshID].bbMax))
     {
         uint16_t numLODs = pushConstants.g_indirectData[meshID].numLods;
         if (numLODs > 0)
         {
-            float4 renderablePos = float4(renderableData[threadId.x].transformRow0.w,
-                                          renderableData[threadId.x].transformRow1.w,
-                                          renderableData[threadId.x].transformRow2.w,
+            float4 renderablePos = float4(pushConstants.renderableData[threadId.x].transformRow0.w,
+                                          pushConstants.renderableData[threadId.x].transformRow1.w,
+                                          pushConstants.renderableData[threadId.x].transformRow2.w,
                                           1.0f);
 
             float distance = length(renderablePos - pushConstants.g_GlobalData->cameraPos) * 1.25f;
@@ -43,9 +39,9 @@ void main(uniform IncrementIndirectPushConstants pushConstants, uint3 threadId: 
                 meshID = pushConstants.g_indirectData[meshID].lodMeshes[index-1];
             }
         }
-        renderableData[threadId.x].meshOverride = meshID;
-        pushConstants.g_indirectData[renderableData[threadId.x].meshOverride].instanceCount++;
+        pushConstants.renderableData[threadId.x].meshOverride = meshID;
+        pushConstants.g_indirectData[pushConstants.renderableData[threadId.x].meshOverride].instanceCount++;
     } else {
-        renderableData[threadId.x].meshOverride = 0xFFFF;
+        pushConstants.renderableData[threadId.x].meshOverride = 0xFFFF;
     }
 }

@@ -21,16 +21,19 @@ struct VSOutput
 
 [[vk::binding(0, 0)]]
 Sampler2D g_textures[512];
-[[vk::binding(0, 1)]]
-StructuredBuffer<RenderableData> renderableData;
-[[vk::binding(0, 2)]]
-StructuredBuffer<uint32_t> renderableIndices;
+
+struct MatGenericPushConstants
+{
+    GlobalData *globalData;
+    RenderableData *renderableData;
+    uint32_t *renderableIndices;
+};
 
 [shader("vertex")]
-VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex: SV_VulkanInstanceID)
+VSOutput main(VSInput input, uniform MatGenericPushConstants pushConstants, uint instanceIndex: SV_VulkanInstanceID)
 {
     VSOutput output;
-    RenderableData renderData = renderableData[renderableIndices[instanceIndex]];
+    RenderableData renderData = pushConstants.renderableData[pushConstants.renderableIndices[instanceIndex]];
     float4x4 modelMat4 = float4x4(
         renderData.transformRow0,
         renderData.transformRow1,
@@ -39,13 +42,13 @@ VSOutput main(VSInput input, uniform GlobalData *globalData, uint instanceIndex:
 
     float4 worldPos = mul(modelMat4, float4(input.Pos, 1.0f));
 
-    output.Normal = mul((float3x3)mul(globalData->view, modelMat4), input.Normal);
+    output.Normal = mul((float3x3)mul(pushConstants.globalData->view, modelMat4), input.Normal);
     output.UV = input.UV;
-    output.Pos = mul(globalData->projection, mul(globalData->view, worldPos));
+    output.Pos = mul(pushConstants.globalData->projection, mul(pushConstants.globalData->view, worldPos));
     output.Factor = 1.0f;
     // Calculate view vectors required for lighting
-    float4 fragPos = mul(globalData->view, worldPos);
-    float4 lightViewPos = mul(globalData->view, globalData->lightPos);
+    float4 fragPos = mul(pushConstants.globalData->view, worldPos);
+    float4 lightViewPos = mul(pushConstants.globalData->view, pushConstants.globalData->lightPos);
     output.LightVec = lightViewPos.xyz - fragPos.xyz;
     output.ViewVec = -fragPos.xyz;
     output.textureID = renderData.textureIDs_0_3.x; 

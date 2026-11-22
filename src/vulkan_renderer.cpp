@@ -133,17 +133,13 @@ VkDescriptorPool imguiDescriptorPool;
 VkDescriptorSetLayout descriptorSetLayoutTex;
 VkDescriptorSet descriptorSetTex;
 
-VkDescriptorSetLayout descriptorSetLayoutRenderables;
-VkDescriptorSet descriptorSetsRenderableData[FRAMES_IN_FLIGHT];
-
-VkDescriptorSetLayout descriptorSetLayoutRenderableIndices;
-VkDescriptorSet descriptorSetsRenderableIndices[FRAMES_IN_FLIGHT];
 uint32_t renderableIndices[MAX_RENDERABLES];
 
 
 VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
+VkDeviceAddress renderableDataAddress[FRAMES_IN_FLIGHT];
 
 VkBuffer indirectDataBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation indirectDataAllocations[FRAMES_IN_FLIGHT];
@@ -153,12 +149,36 @@ VkDeviceAddress indirectBufferAddress[FRAMES_IN_FLIGHT];
 VkBuffer renderableIndexBuffers[FRAMES_IN_FLIGHT];
 VmaAllocation renderableIndexAllocations[FRAMES_IN_FLIGHT];
 VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
+VkDeviceAddress renderableIndexAddress[FRAMES_IN_FLIGHT];
 
 uint32_t renderableCount = 0;
 struct MeshOffsetsPushConstants
 {
     VkDeviceAddress indirectAddress;
     uint32_t numMeshes;
+};
+
+struct IncrementIndirectPushConstants
+{
+    VkDeviceAddress globalDataAddress;
+    VkDeviceAddress indirectAddress;
+    VkDeviceAddress renderableDataAddress;
+    uint32_t numRenderables;
+};
+
+struct CalculateIndicesPushConstants
+{
+    VkDeviceAddress indirectAddress;
+    VkDeviceAddress renderableDataAddress;
+    VkDeviceAddress renderableIndexAddress;
+    uint32_t numRenderables;
+};
+
+struct MatGenericPushConstants
+{
+    VkDeviceAddress globalDataAddress;
+    VkDeviceAddress renderableDataAddress;
+    VkDeviceAddress renderableIndexAddress;
 };
 
 PipelineID pipelineClearIndirectCS;
@@ -363,13 +383,14 @@ void GfxSortRenderables(Scene &scene)
     // Increment indirect data based on number of renderables with each mesh
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->layout, 0, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    VkDeviceAddress incrementIndirectPushConstants[2] =
+    IncrementIndirectPushConstants incrementIndirectPushConstants =
     {
-        globalDataBuffers[frameIndex].deviceAddress,
-        indirectBufferAddress[frameIndex]
+        .globalDataAddress = globalDataBuffers[frameIndex].deviceAddress,
+        .indirectAddress = indirectBufferAddress[frameIndex],
+        .renderableDataAddress = renderableDataAddress[frameIndex],
+        .numRenderables = scene.numRenderables
     };
-    vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress) * 2, incrementIndirectPushConstants);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
     vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
 
     // Assign Mesh Offsets for each mesh
@@ -389,9 +410,14 @@ void GfxSortRenderables(Scene &scene)
     // Calculate Renderable Indices
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 0, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectBufferAddress[frameIndex]);
+    CalculateIndicesPushConstants calculateIndicesPushConstants =
+    {
+        .indirectAddress = indirectBufferAddress[frameIndex],
+        .renderableDataAddress = renderableDataAddress[frameIndex],
+        .renderableIndexAddress = renderableIndexAddress[frameIndex],
+        .numRenderables = scene.numRenderables
+    };
+    vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
     vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -840,14 +866,10 @@ void GfxCreateComputePipelines()
     };
     pipelineClearIndirectCS = LoadPipeline(&pipelineInfo);
 
-    VkDescriptorSetLayout layoutInc[] =
-    {
-        descriptorSetLayoutRenderables
-    };
     pipelineInfo.shaderFile = "shaders/incrementIndirectCS.spv";
-    pipelineInfo.descSetLayouts = layoutInc;
-    pipelineInfo.numLayouts = 1;
-    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress) + sizeof(VkDeviceAddress);
+    pipelineInfo.descSetLayouts = nullptr;
+    pipelineInfo.numLayouts = 0;
+    pipelineInfo.pushConstantSize = sizeof(IncrementIndirectPushConstants);
     pipelineIncrementIndirectCS = LoadPipeline(&pipelineInfo);
 
     pipelineInfo.shaderFile = "shaders/meshOffsetsIndirectCS.spv";
@@ -856,15 +878,10 @@ void GfxCreateComputePipelines()
     pipelineInfo.pushConstantSize = sizeof(MeshOffsetsPushConstants);
     pipelineMeshOffsetsIndirectCS = LoadPipeline(&pipelineInfo);
 
-    VkDescriptorSetLayout layoutIndices[] =
-    {
-        descriptorSetLayoutRenderableIndices,
-        descriptorSetLayoutRenderables
-    };
     pipelineInfo.shaderFile = "shaders/calculateIndicesIndirectCS.spv";
-    pipelineInfo.descSetLayouts = layoutIndices;
-    pipelineInfo.numLayouts = 2;
-    pipelineInfo.pushConstantSize = sizeof(VkDeviceAddress);
+    pipelineInfo.descSetLayouts = nullptr;
+    pipelineInfo.numLayouts = 0;
+    pipelineInfo.pushConstantSize = sizeof(CalculateIndicesPushConstants);
     pipelineIndicesIndirectCS = LoadPipeline(&pipelineInfo);
     spdlog::log(spdlog::level::info, "Created Compute Pipelines");
 }
@@ -1164,29 +1181,6 @@ void GfxCreateScene(Scene *pScene)
 }
 void GfxUpdateScene(Scene *pScene)
 {
-    VkDescriptorBufferInfo bufferDescriptor = {};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        bufferDescriptor.buffer = renderableDataBuffers[i];
-        bufferDescriptor.offset = 0;
-        bufferDescriptor.range = sizeof(RenderableData) * pScene->numRenderables;
-
-        VkWriteDescriptorSet writeDescSet =
-            {
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = descriptorSetsRenderableData[i],
-                .dstBinding = 0,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .pBufferInfo = &bufferDescriptor};
-        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
-
-        bufferDescriptor.buffer = renderableIndexBuffers[i];
-        bufferDescriptor.range = sizeof(uint32_t) * pScene->numRenderables;
-        writeDescSet.dstSet = descriptorSetsRenderableIndices[i];
-        vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
-    }
     renderableCount = pScene->numRenderables;
 }
 
@@ -1338,10 +1332,14 @@ void GfxRenderScene(VkCommandBuffer &cmd)
     GfxBindDescriptorHeaps();
 #else
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 0, 1, &descriptorSetTex, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 1, 1, &descriptorSetsRenderableData[frameIndex], 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 2, 1, &descriptorSetsRenderableIndices[frameIndex], 0, nullptr);
 
-    vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(VkDeviceAddress), &globalDataBuffers[frameIndex].deviceAddress);
+    MatGenericPushConstants matPushConstants =
+    {
+        .globalDataAddress = globalDataBuffers[frameIndex].deviceAddress,
+        .renderableDataAddress = renderableDataAddress[frameIndex],
+        .renderableIndexAddress = renderableIndexAddress[frameIndex]
+    };
+    vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(MatGenericPushConstants), &matPushConstants);
 #endif
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
@@ -1529,7 +1527,6 @@ void GfxDestroy()
     vkDestroySurfaceKHR(instance, surface, nullptr);
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
-    vkDestroyDescriptorSetLayout(device, descriptorSetLayoutRenderables, nullptr);
 
     vkFreeDescriptorSets(device, descriptorPool, 1, &descriptorSetTex);
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
@@ -1584,6 +1581,7 @@ void GfxCreateRenderableIndexBuffer()
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
             .buffer = renderableIndexBuffers[i]};
+        renderableIndexAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
 
         char allocName[96];
         sprintf(allocName, "Renderable Indices Allocation: %i", i);
@@ -1618,6 +1616,7 @@ void GfxCreateBindlessRenderableBuffer()
         VkBufferDeviceAddressInfo bdaInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
             .buffer = renderableDataBuffers[i]};
+        renderableDataAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
 
         char allocName[96];
         sprintf(allocName, "Renderable Data Allocation: %i", i);
@@ -1707,41 +1706,9 @@ void GfxCreateBindlessDesc()
     VK_CHECK(vkAllocateDescriptorSets(device, &texDescSetAllocInfo, &descriptorSetTex));
 
     // Renderable Data/Indices Descriptor Set and Layout
-    VkDescriptorSetLayoutBinding descLayoutBindingRenderable = {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        .descriptorCount = MAX_RENDERABLES,
-        .stageFlags = VK_SHADER_STAGE_ALL};
-    VkDescriptorSetLayoutCreateInfo descLayoutRenderableCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &descBindingFlags,
-        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-        .bindingCount = 1,
-        .pBindings = &descLayoutBindingRenderable};
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutRenderableCreateInfo, NULL, &descriptorSetLayoutRenderables));
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &descLayoutRenderableCreateInfo, NULL, &descriptorSetLayoutRenderableIndices));
-
-    variableDescCount = MAX_RENDERABLES;
-    variableDescCountAllocInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT,
-            .descriptorSetCount = 1,
-            .pDescriptorCounts = &variableDescCount};
-    VkDescriptorSetAllocateInfo renderableDescSetAllocInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .pNext = &variableDescCountAllocInfo,
-            .descriptorPool = descriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &descriptorSetLayoutRenderables};
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableData[i]));
-    }
-    renderableDescSetAllocInfo.pSetLayouts = &descriptorSetLayoutRenderableIndices;
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(vkAllocateDescriptorSets(device, &renderableDescSetAllocInfo, &descriptorSetsRenderableIndices[i]));
+        // ...
     }
 }
 
@@ -1761,13 +1728,4 @@ VkCommandBuffer GfxCreateOneTimeCmdBuffer()
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures()
 {
     return descriptorSetLayoutTex;
-}
-VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderableIndices()
-{
-    return descriptorSetLayoutRenderableIndices;
-}
-
-VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables()
-{
-    return descriptorSetLayoutRenderables;
 }

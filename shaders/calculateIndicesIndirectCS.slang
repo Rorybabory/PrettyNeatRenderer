@@ -1,26 +1,26 @@
 import Common;
 
-[[vk::binding(0, 0)]]
-RWStructuredBuffer<uint32_t> renderableIndices;
-[[vk::binding(0, 1)]]
-RWStructuredBuffer<RenderableData> renderableData;
+struct CalculateIndicesPushConstants
+{
+    Mesh *g_indirectData;
+    RenderableData *renderableData;
+    uint32_t *renderableIndices;
+    uint32_t numRenderables;
+};
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void main(uniform Mesh * g_indirectData, uint3 threadId: SV_DispatchThreadID)
+void main(uniform CalculateIndicesPushConstants pushConstants, uint3 threadId: SV_DispatchThreadID)
 {
-    uint numRenderables;
-    uint stride;
-    renderableData.GetDimensions(numRenderables, stride);
-    if (threadId.x >= numRenderables)
+    if (threadId.x >= pushConstants.numRenderables)
         return;
 
-    uint16_t meshID = renderableData[threadId.x].meshOverride;
+    uint16_t meshID = pushConstants.renderableData[threadId.x].meshOverride;
     if (meshID == 0xFFFF)
     {
         return;
     }
 
-    uint32_t writeIndex = g_indirectData[meshID].meshOffset++;
-    renderableIndices[writeIndex] = threadId.x;
+    uint32_t writeIndex = pushConstants.g_indirectData[meshID].meshOffset++;
+    pushConstants.renderableIndices[writeIndex] = threadId.x;
 }

@@ -62,8 +62,6 @@ float GfxGetAspectRatio();
 void GfxGetBindingMappings(VkDescriptorSetAndBindingMappingEXT **bindingMappings, uint32_t *bindingCount);
 VkFormat GfxGetDepthFormat();
 VkDescriptorSetLayout GfxGetDescriptorSetLayoutTextures();
-VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderables();
-VkDescriptorSetLayout GfxGetDescriptorSetLayoutRenderableIndices();
 
 VkCommandPool GfxGetCommandPool();
 
