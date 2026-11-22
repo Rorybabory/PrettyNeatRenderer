@@ -1344,9 +1344,9 @@ void GfxRenderScene(VkCommandBuffer &cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
     VkDeviceSize vOffset{0};
-
-    vkCmdBindVertexBuffers(cmd, 0, 1, GetMeshVertexBuffer(), &vOffset);
-    vkCmdBindIndexBuffer(cmd, *GetMeshIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+    VkBuffer vertBuffer = GetMeshVertexBuffer();
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vertBuffer, &vOffset);
+    vkCmdBindIndexBuffer(cmd, GetMeshIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
     vkCmdDrawIndexedIndirect(cmd, indirectDataBuffers[frameIndex], 0, (uint32_t)GetNumMeshes(), sizeof(Mesh));
 }
@@ -1503,7 +1503,6 @@ void GfxDestroy()
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    AssetLoaderDestroy();
 
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {

@@ -9,8 +9,10 @@
 #define MAX_PIPELINES 65535
 #define MAX_MESHES 65535
 #define MAX_TEXTURES 512
+#define MAX_BUFFERS 2048
 #define INVALID_TEXTURE UINT16_MAX
 #define MAX_DESCRIPTOR_SETS 4
+#define FRAMES_IN_FLIGHT 2
 
 struct Vertex
 {
@@ -21,9 +23,9 @@ struct Vertex
 
 typedef uint16_t MeshID;
 typedef uint16_t TextureID;
-typedef uint16_t BufferID; //Currently Unused
+typedef uint16_t BufferID;
 
-typedef struct Mesh
+struct Mesh
 {
     uint32_t indexCount;
     uint32_t instanceCount;
@@ -36,7 +38,24 @@ typedef struct Mesh
     uint16_t lodMeshes[5];
     uint16_t numLods;
     uint16_t padding;
-} Mesh;
+};
+enum BufferFlags
+{
+    BUFFER_FLAG_MAPPED = 1 << 1,
+    BUFFER_FLAG_VERTEX_BUFFER = 1 << 2,
+    BUFFER_FLAG_INDEX_BUFFER = 1 << 3,
+    BUFFER_FLAG_INDIRECT_BUFFER = 1 << 4,
+    BUFFER_FLAG_TRANSFER_SRC = 1 << 5,
+    BUFFER_FLAG_TRANSFER_DST = 1 << 6,
+    BUFFER_FLAG_PER_FRAME = 1 << 7
+};
+struct Buffer {
+    uint64_t flags;
+    VkBuffer buffer[FRAMES_IN_FLIGHT];
+    VmaAllocation allocation[FRAMES_IN_FLIGHT];
+    VmaAllocationInfo allocationInfo[FRAMES_IN_FLIGHT];
+    VkDeviceAddress deviceAddress[FRAMES_IN_FLIGHT];
+};
 
 enum TextureFlags
 {

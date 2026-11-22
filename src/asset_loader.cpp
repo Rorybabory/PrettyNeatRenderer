@@ -28,20 +28,11 @@ extern VkDevice device;
 extern VkCommandPool commandPool;
 extern VkQueue graphicsQueue;
 
-VkBuffer gpuScratchBuffer = NULL;
-VmaAllocation gpuScratchBufferAlloc = NULL;
-VmaAllocationInfo gpuScratchBufferAllocInfo;
-void *gpuScratchBufferMapped = NULL;
-
-VkBuffer meshVertexBuffer;
-VmaAllocation meshVertexBufferAlloc;
-VmaAllocationInfo meshVertexBufferAllocInfo{};
-VkDeviceSize meshVertexBufferSize = 0;
-
-VkBuffer meshIndexBuffer;
-VmaAllocation meshIndexBufferAlloc;
-VmaAllocationInfo meshIndexBufferAllocInfo{};
-VkDeviceSize meshIndexBufferSize = 0;
+BufferID scratchBuffer;
+BufferID vertexBuffer;
+BufferID indexBuffer;
+uint32_t meshVertexBufferSize = 0;
+uint32_t meshIndexBufferSize = 0;
 
 Pipeline pipelineRegistry[MAX_PIPELINES];
 uint32_t pipelineRegistryCount = 0;
@@ -50,6 +41,9 @@ uint32_t meshRegistryCount = 0;
 
 Texture textureRegistry[MAX_TEXTURES];
 uint32_t textureRegistryCount = 0;
+
+Buffer bufferRegistry[MAX_BUFFERS];
+uint32_t bufferRegistryCount = 0;
 
 const uint32_t MAX_VERTICES = 1 << 18;
 const uint32_t MAX_INDICES = 1 << 18;
@@ -71,14 +65,14 @@ void SetTextureDebugName(TextureID id, const char *name)
     textureDebugNames[id] = name;
 }
 
-VkBuffer *GetMeshVertexBuffer()
+VkBuffer GetMeshVertexBuffer()
 {
-    return &meshVertexBuffer;
+    return GetBufferVK(vertexBuffer);
 }
 
-VkBuffer *GetMeshIndexBuffer()
+VkBuffer GetMeshIndexBuffer()
 {
-    return &meshIndexBuffer;
+    return GetBufferVK(indexBuffer);
 }
 
 uint32_t GetNumMeshes()
@@ -88,53 +82,32 @@ uint32_t GetNumMeshes()
 
 void AssetLoaderInit()
 {
-    VkBufferCreateInfo scratchBufferInfo = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    BufferCreateInfo scratchCreateInfo = {
+        .debugName = "GPU Scratch Buffer",
         .size = SCRATCH_BUFFER_SIZE,
-        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .flags = BUFFER_FLAG_MAPPED | BUFFER_FLAG_TRANSFER_SRC | BUFFER_FLAG_TRANSFER_DST
     };
-    VmaAllocationCreateInfo scratchBufferAllocInfo = {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-                 VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO};
-    VK_CHECK(vmaCreateBuffer(
-        allocator,
-        &scratchBufferInfo,
-        &scratchBufferAllocInfo,
-        &gpuScratchBuffer,
-        &gpuScratchBufferAlloc,
-        &gpuScratchBufferAllocInfo));
-
-    vmaSetAllocationName(allocator, gpuScratchBufferAlloc, "GPU Scratch Buffer");
+    scratchBuffer = CreateBuffer(&scratchCreateInfo);
 
     cpuScratchVertices = (Vertex *)malloc(sizeof(Vertex) * MAX_VERTICES);
     cpuScratchIndices = (uint32_t *)malloc(sizeof(uint32_t) * MAX_INDICES);
     scratchShaderSrc = (char *)malloc(sizeof(char) * MAX_SHADER_SIZE);
 
-    VkBufferCreateInfo meshBufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = MESH_BUFFER_SIZE,
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
+    BufferCreateInfo vertexBufferCreateInfo =
+    {
+        .debugName = "GPU Vertex Buffer",
+        .size = MESH_BUFFER_SIZE,
+        .flags = BUFFER_FLAG_VERTEX_BUFFER | BUFFER_FLAG_TRANSFER_DST
+    };
+    vertexBuffer = CreateBuffer(&vertexBufferCreateInfo);
 
-    VmaAllocationCreateInfo meshBufferAllocCreateInfo{
-        .flags = 0,
-        .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-    VK_CHECK(vmaCreateBuffer(allocator, &meshBufferInfo, &meshBufferAllocCreateInfo, &meshVertexBuffer, &meshVertexBufferAlloc, &meshVertexBufferAllocInfo));
-    vmaSetAllocationName(allocator, meshVertexBufferAlloc, "Mesh Vertex Buffer");
-
-    VkBufferCreateInfo indexBufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = MESH_BUFFER_SIZE,
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-
-    VmaAllocationCreateInfo indexBufferAllocCreateInfo{
-        .flags = 0,
-        .usage = VMA_MEMORY_USAGE_GPU_ONLY};
-    VK_CHECK(vmaCreateBuffer(allocator, &indexBufferInfo, &indexBufferAllocCreateInfo, &meshIndexBuffer, &meshIndexBufferAlloc, &meshIndexBufferAllocInfo));
-    vmaSetAllocationName(allocator, meshIndexBufferAlloc, "Mesh Index Buffer");
+    BufferCreateInfo indexBufferCreateInfo =
+    {
+        .debugName = "GPU Index Buffer",
+        .size = MESH_BUFFER_SIZE,
+        .flags = BUFFER_FLAG_INDEX_BUFFER | BUFFER_FLAG_TRANSFER_DST
+    };
+    indexBuffer = CreateBuffer(&indexBufferCreateInfo);
 }
 
 MeshID LoadMesh(MeshLoadInfo *loadInfo)
@@ -182,8 +155,8 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
     aiReleaseImport(scene);
 
     // Copy CPU Scratch Vertex and Index buffers to Mapped GPU Memory
-    memcpy(((char *)gpuScratchBufferAllocInfo.pMappedData), cpuScratchVertices, vertexSize);
-    memcpy(((char *)gpuScratchBufferAllocInfo.pMappedData) + vertexSize, cpuScratchIndices, indexSize);
+    memcpy(((char *)GetBufferMappedAddress(scratchBuffer)), cpuScratchVertices, vertexSize);
+    memcpy(((char *)GetBufferMappedAddress(scratchBuffer)) + vertexSize, cpuScratchIndices, indexSize);
     mesh.vertexOffset = meshVertexBufferSize / sizeof(Vertex);
     mesh.firstIndex = meshIndexBufferSize / sizeof(uint32_t);
 
@@ -205,8 +178,8 @@ MeshID LoadMesh(MeshLoadInfo *loadInfo)
         .srcOffset = vertexSize,
         .dstOffset = meshIndexBufferSize,
         .size = indexSize};
-    vkCmdCopyBuffer(copyCmdBuffer, gpuScratchBuffer, meshVertexBuffer, 1, &vertexBufferCopy);
-    vkCmdCopyBuffer(copyCmdBuffer, gpuScratchBuffer, meshIndexBuffer, 1, &indexBufferCopy);
+    vkCmdCopyBuffer(copyCmdBuffer, GetBufferVK(scratchBuffer), GetBufferVK(vertexBuffer), 1, &vertexBufferCopy);
+    vkCmdCopyBuffer(copyCmdBuffer, GetBufferVK(scratchBuffer), GetBufferVK(indexBuffer), 1, &indexBufferCopy);
     vkEndCommandBuffer(copyCmdBuffer);
 
     // Submit to our graphics queue
@@ -327,7 +300,7 @@ TextureID LoadTexture(TextureLoadInfo *loadInfo)
     vmaSetAllocationName(allocator, texture.allocation, loadInfo->filename);
 
     // Load Image Data to Buffer
-    memcpy(gpuScratchBufferAllocInfo.pMappedData, ktxTexture->pData, ktxTexture->dataSize);
+    memcpy(GetBufferMappedAddress(scratchBuffer), ktxTexture->pData, ktxTexture->dataSize);
 
     // Create Fence and Command Buffer for copying data from the buffer to the image
     VkFenceCreateInfo fenceOneTimeInfo = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -380,7 +353,7 @@ TextureID LoadTexture(TextureLoadInfo *loadInfo)
     }
     vkCmdCopyBufferToImage(
         cbOneTime,
-        gpuScratchBuffer,
+        GetBufferVK(scratchBuffer),
         texture.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         static_cast<uint32_t>(ktxTexture->numLevels),
@@ -697,12 +670,93 @@ void ClearPipelineRegistry()
     }
 }
 
+BufferID CreateBuffer(BufferCreateInfo * pCreateInfo)
+{
+    Buffer buffer = {};
+    VkBufferCreateInfo bufferInfo =
+    {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = pCreateInfo->size,
+        .usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+    };
+    if (pCreateInfo->flags | BUFFER_FLAG_VERTEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;    
+    if (pCreateInfo->flags | BUFFER_FLAG_INDEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;    
+    if (pCreateInfo->flags | BUFFER_FLAG_INDIRECT_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;    
+    if (pCreateInfo->flags | BUFFER_FLAG_TRANSFER_SRC) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;    
+    if (pCreateInfo->flags | BUFFER_FLAG_TRANSFER_DST) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;    
+
+            
+    VmaAllocationCreateInfo allocCreateInfo =
+    {
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+    };
+    if (pCreateInfo->flags | BUFFER_FLAG_MAPPED) allocCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;    
+    
+    uint32_t numBuffers = pCreateInfo->flags | BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
+
+    for (uint32_t i = 0; i < numBuffers; ++i)
+    {
+        VK_CHECK(
+            vmaCreateBuffer(
+                allocator,
+                &bufferInfo,
+                &allocCreateInfo,
+                &buffer.buffer[i],
+                &buffer.allocation[i],
+                &buffer.allocationInfo[i]));
+        VkBufferDeviceAddressInfo bdaInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = buffer.buffer[i]
+        };
+
+        buffer.deviceAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
+
+        char allocName[128];
+        if (numBuffers == 1)
+        {
+            sprintf(allocName, "%s", pCreateInfo->debugName);
+        }
+        else
+        {
+            sprintf(allocName, "%s : %i", pCreateInfo->debugName, i);
+        }
+        vmaSetAllocationName(allocator, buffer.allocation[i], allocName);
+    }
+    buffer.flags = pCreateInfo->flags;
+    bufferRegistry[bufferRegistryCount] = buffer;
+    return (BufferID) bufferRegistryCount++;
+}
+
+VkDeviceAddress GetBufferDeviceAddress(BufferID bufferID, uint32_t frameIndex)
+{
+    return bufferRegistry[bufferID].deviceAddress[frameIndex];
+}
+void * GetBufferMappedAddress(BufferID bufferID, uint32_t frameIndex)
+{
+    return bufferRegistry[bufferID].allocationInfo[frameIndex].pMappedData;
+}
+VkBuffer GetBufferVK(BufferID bufferID, uint32_t frameIndex)
+{
+    return bufferRegistry[bufferID].buffer[frameIndex];
+}
+void ClearBufferRegistry()
+{
+    for (uint32_t i = 0; i < bufferRegistryCount; ++i)
+    {
+        uint32_t numBuffers = bufferRegistry[i].flags | BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
+        for (uint32_t j = 0; j < numBuffers; ++j)
+        {
+            vmaDestroyBuffer(allocator, bufferRegistry[i].buffer[j], bufferRegistry[i].allocation[j]);
+        }
+    }
+    bufferRegistryCount = 0;
+}
+
 void AssetLoaderDestroy()
 {
     free(scratchShaderSrc);
     free(cpuScratchVertices);
     free(cpuScratchIndices);
-    vmaDestroyBuffer(allocator, gpuScratchBuffer, gpuScratchBufferAlloc);
-    vmaDestroyBuffer(allocator, meshVertexBuffer, meshVertexBufferAlloc);
-    vmaDestroyBuffer(allocator, meshIndexBuffer, meshIndexBufferAlloc);
 }

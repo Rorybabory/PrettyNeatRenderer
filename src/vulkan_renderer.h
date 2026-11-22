@@ -9,7 +9,6 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 #include "resource.h"
-#define FRAMES_IN_FLIGHT 2
 // #define DESCRIPTOR_HEAP_EXPERIMENTS
 
 

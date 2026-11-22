@@ -248,9 +248,10 @@ int main()
         GfxRender();
     }
     GfxPreDestroy();
+    AssetLoaderDestroy();
     ClearTextureRegistry();
     ClearPipelineRegistry();
-
+    ClearBufferRegistry();
     GfxDestroy();
     return 0;
 }

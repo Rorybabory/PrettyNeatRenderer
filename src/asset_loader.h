@@ -24,7 +24,6 @@ struct TextureLoadInfo
 TextureID LoadTexture(TextureLoadInfo *loadInfo);
 void ClearTextureRegistry();
 
-
 struct RenderTargetCreateInfo
 {
     const char *name;
@@ -34,6 +33,20 @@ struct RenderTargetCreateInfo
     bool isDepth;
 };
 TextureID CreateRenderTarget(RenderTargetCreateInfo *createInfo);
+
+
+
+struct BufferCreateInfo
+{
+    const char * debugName;
+    uint64_t size;
+    uint64_t flags;
+};
+BufferID CreateBuffer(BufferCreateInfo * pCreateInfo);
+VkDeviceAddress GetBufferDeviceAddress(BufferID bufferID, uint32_t frameIndex = 0);
+void * GetBufferMappedAddress(BufferID bufferID, uint32_t frameIndex = 0);
+VkBuffer GetBufferVK(BufferID bufferID, uint32_t frameIndex = 0);
+void ClearBufferRegistry();
 
 enum PipelineFlags
 {
@@ -55,8 +68,8 @@ PipelineID LoadPipeline(PipelineLoadInfo *pipelineInfo);
 Pipeline *GetPipeline(PipelineID id);
 void ClearPipelineRegistry();
 
-VkBuffer *GetMeshVertexBuffer();
-VkBuffer *GetMeshIndexBuffer();
+VkBuffer GetMeshVertexBuffer();
+VkBuffer GetMeshIndexBuffer();
 
 const char *GetTextureDebugName(TextureID id);
 void SetTextureDebugName(TextureID id, const char *name);
