@@ -11,6 +11,7 @@
 #include "resource.h"
 // #define DESCRIPTOR_HEAP_EXPERIMENTS
 
+#define USE_OPENXR
 
 
 struct GfxInstance;
@@ -41,7 +42,9 @@ void GfxCreateIndirectBuffer();
 void GfxCreateComputePipelines();
 void GfxCreateImGui();
 void GfxImguiNewFrame();
-
+#ifdef USE_OPENXR
+void GfxCreateOpenXR();
+#endif
 void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 
 void GfxCreateScene(Scene *pScene);

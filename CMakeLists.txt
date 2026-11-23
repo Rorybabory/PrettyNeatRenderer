@@ -29,15 +29,15 @@ set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     OpenXR
     GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
-    GIT_TAG        release-1.1.43 # Check GitHub for the latest release tag
+    GIT_TAG        release-1.1.65 # Check GitHub for the latest release tag
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(OpenXR)
-target_compile_definitions(Renderer PRIVATE XR_USE_GRAPHICS_API_VULKAN)
-if(WIN32)
-    target_compile_definitions(Renderer PRIVATE XR_USE_PLATFORM_WIN32)
-elseif(UNIX AND NOT ANDROID)
-    target_compile_definitions(Renderer PRIVATE XR_USE_PLATFORM_XLIB)
+if(NOT TARGET OpenXR::openxr_loader AND TARGET openxr_loader)
+    add_library(OpenXR::openxr_loader ALIAS openxr_loader)
 endif()
+
+
 
 # Fetch Dear ImGui (newest release)
 FetchContent_Declare(
@@ -96,6 +96,20 @@ target_compile_definitions(Renderer PRIVATE
     VMA_STATIC_VULKAN_FUNCTIONS=0 
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
+target_compile_definitions(Renderer PRIVATE XR_USE_GRAPHICS_API_VULKAN)
+
+if(WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        XR_USE_PLATFORM_WIN32
+    )
+elseif(UNIX AND NOT APPLE)
+    # Enable one or more display platform macros matching your window system
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        XR_USE_PLATFORM_XLIB
+        # XR_USE_PLATFORM_XCB
+        # XR_USE_PLATFORM_WAYLAND
+    )
+endif()
 
 include_directories(include)
 
@@ -106,6 +120,7 @@ target_link_libraries(Renderer PRIVATE
     assimp::assimp
     KTX::ktx
     imgui
+    OpenXR::openxr_loader
 )
 
 if(MSVC)

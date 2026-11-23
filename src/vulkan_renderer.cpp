@@ -35,8 +35,27 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
+#ifdef USE_OPENXR
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <unknwn.h>
+#endif
+#ifndef XR_USE_GRAPHICS_API_VULKAN
+#define XR_USE_GRAPHICS_API_VULKAN
+#endif
+#include <openxr/openxr.h>
+#include <openxr/openxr_platform.h>
+
+
+
+#endif
+
 #define WINDOW_BASE_WIDTH 1280
 #define WINDOW_BASE_HEIGHT 720
+
 
 
 const char *projectName = "Rory's Renderer!!!";
@@ -178,6 +197,22 @@ PipelineID pipelineIndicesIndirectCS;
 
 BufferID globalDataBuffer;
 
+#ifdef USE_OPENXR
+    XrInstance xrInstance;
+    XrDebugUtilsMessengerEXT xrDebugUtilsMessenger;
+    XrSystemId xrSystemID;
+    XrSystemProperties xrSystemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
+    #define OPENXR_CHECK(x, y)                                                                         \
+    {                                                                                              \
+        XrResult result = (x);                                                                     \
+        if (!XR_SUCCEEDED(result)) {                                                               \
+            char resultString[XR_MAX_RESULT_STRING_SIZE];                                          \
+            xrResultToString(xrInstance, result, resultString);                                  \
+            spdlog::error("OPENXR_CHECK failed: {} ({})", y, resultString);                          \
+        }                                                                                          \
+    }
+#endif
+
 // Properties and Limits
 VkPhysicalDeviceDescriptorHeapPropertiesEXT heapProperties;
 
@@ -290,6 +325,60 @@ void GfxCreateInstance()
     free(instanceExtension);
     volkLoadInstance(instance);
 }
+#ifdef USE_OPENXR
+XrBool32 GfxOpenXRMessageCallback(XrDebugUtilsMessageSeverityFlagsEXT messageSeverity, XrDebugUtilsMessageTypeFlagsEXT messageType, const XrDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
+{
+    spdlog::info("{}", pCallbackData->message);
+}
+void GfxCreateOpenXR()
+{
+    XrApplicationInfo appInfo;
+    strncpy(appInfo.applicationName, "XR Demo", XR_MAX_APPLICATION_NAME_SIZE);
+    appInfo.applicationVersion = 1;
+    strncpy(appInfo.engineName, "Pretty Neat Renderer", XR_MAX_ENGINE_NAME_SIZE);
+    appInfo.engineVersion = 1;
+    appInfo.apiVersion = XR_API_VERSION_1_0;
+    
+    const char * instanceExtensions[] = {
+        XR_EXT_DEBUG_UTILS_EXTENSION_NAME,
+        XR_KHR_VULKAN_ENABLE_EXTENSION_NAME
+    };
+    // uint32_t apiLayerCount = 0;
+    // xrEnumerateApiLayerProperties(0, &apiLayerCount, nullptr);
+    // XrApiLayerProperties * apiLayerProperties = (XrApiLayerProperties*) malloc(sizeof(XrApiLayerProperties) * apiLayerCount);
+    // for (uint32_t i = 0; i < apiLayerCount; ++i)
+    //     apiLayerProperties[i] = {.type = XR_TYPE_API_LAYER_PROPERTIES};
+    // xrEnumerateApiLayerProperties(0, &apiLayerCount, apiLayerProperties);
+
+    XrInstanceCreateInfo instanceCreateInfo = {
+        .type = XR_TYPE_INSTANCE_CREATE_INFO,
+        .createFlags = 0,
+        .applicationInfo = appInfo,
+        .enabledExtensionCount = 2,
+        .enabledExtensionNames = instanceExtensions
+    };
+    xrCreateInstance(&instanceCreateInfo, &xrInstance);
+
+    //Create Debug Messanger
+    XrDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCI{XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+    debugUtilsMessengerCI.messageSeverities = XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugUtilsMessengerCI.messageTypes = XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
+    debugUtilsMessengerCI.userCallback = (PFN_xrDebugUtilsMessengerCallbackEXT)GfxOpenXRMessageCallback;
+    debugUtilsMessengerCI.userData = nullptr;
+
+    PFN_xrCreateDebugUtilsMessengerEXT xrCreateDebugUtilsMessengerEXT;
+    xrGetInstanceProcAddr(xrInstance, "xrCreateDebugUtilsMessengerEXT", (PFN_xrVoidFunction *)&xrCreateDebugUtilsMessengerEXT);
+    xrCreateDebugUtilsMessengerEXT(xrInstance, &debugUtilsMessengerCI, &xrDebugUtilsMessenger);
+
+    //Obtain System ID
+    XrSystemGetInfo systemGetInfo = {
+        .type = XR_TYPE_SYSTEM_GET_INFO,
+        .formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY
+    };
+    xrGetSystem(xrInstance, &systemGetInfo, &xrSystemID);
+    xrGetSystemProperties(xrInstance, xrSystemID, &xrSystemProperties);
+}
+#endif
 
 glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular)
 {
@@ -1202,6 +1291,9 @@ void GfxCreateImGui()
 void GfxInit()
 {
     GfxCreateWindow();
+    #ifdef USE_OPENXR
+    GfxCreateOpenXR();
+    #endif
     GfxCreateInstance();
     GfxSetupDebugMessanger();
     GfxSelectDevice();
