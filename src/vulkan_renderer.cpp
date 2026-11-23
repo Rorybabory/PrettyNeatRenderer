@@ -135,21 +135,9 @@ VkDescriptorSet descriptorSetTex;
 
 uint32_t renderableIndices[MAX_RENDERABLES];
 
-
-VkBuffer renderableDataBuffers[FRAMES_IN_FLIGHT];
-VmaAllocation renderableDataAllocations[FRAMES_IN_FLIGHT];
-VmaAllocationInfo renderableDataAllocInfo[FRAMES_IN_FLIGHT];
-VkDeviceAddress renderableDataAddress[FRAMES_IN_FLIGHT];
-
-VkBuffer indirectDataBuffers[FRAMES_IN_FLIGHT];
-VmaAllocation indirectDataAllocations[FRAMES_IN_FLIGHT];
-VmaAllocationInfo indirectDataAllocInfo[FRAMES_IN_FLIGHT];
-VkDeviceAddress indirectBufferAddress[FRAMES_IN_FLIGHT];
-
-VkBuffer renderableIndexBuffers[FRAMES_IN_FLIGHT];
-VmaAllocation renderableIndexAllocations[FRAMES_IN_FLIGHT];
-VmaAllocationInfo renderableIndexAllocInfo[FRAMES_IN_FLIGHT];
-VkDeviceAddress renderableIndexAddress[FRAMES_IN_FLIGHT];
+BufferID renderableDataBuffer;
+BufferID indirectDataBuffer;
+BufferID renderableIndexBuffer;
 
 uint32_t renderableCount = 0;
 struct MeshOffsetsPushConstants
@@ -188,15 +176,7 @@ PipelineID pipelineIndicesIndirectCS;
 
 #endif
 
-struct GlobalDataBuffer
-{
-    VkBuffer buffer;
-    VmaAllocation alloc;
-    VmaAllocationInfo allocInfo;
-    VkDeviceAddress deviceAddress;
-};
-
-GlobalDataBuffer globalDataBuffers[FRAMES_IN_FLIGHT];
+BufferID globalDataBuffer;
 
 // Properties and Limits
 VkPhysicalDeviceDescriptorHeapPropertiesEXT heapProperties;
@@ -356,8 +336,12 @@ extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
 void GfxSortRenderables(Scene &scene)
 {
-    memcpy(indirectDataAllocInfo[frameIndex].pMappedData, &meshRegistry, GetNumMeshes() * sizeof(Mesh));
-    memcpy(renderableDataAllocInfo[frameIndex].pMappedData, scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
+    VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
+    VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
+    VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
+    
+    memcpy(GetBufferMappedAddress(indirectDataBuffer, frameIndex), &meshRegistry, GetNumMeshes() * sizeof(Mesh));
+    memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
     VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
     VkCommandBufferBeginInfo beginInfo =
         {
@@ -365,8 +349,9 @@ void GfxSortRenderables(Scene &scene)
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
+
     // Clear Specific values in indirect buffer
-    vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectBufferAddress[frameIndex]);
+    vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectDataAddress);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
     vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
     VkMemoryBarrier2 barrier = {
@@ -385,9 +370,9 @@ void GfxSortRenderables(Scene &scene)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
     IncrementIndirectPushConstants incrementIndirectPushConstants =
     {
-        .globalDataAddress = globalDataBuffers[frameIndex].deviceAddress,
-        .indirectAddress = indirectBufferAddress[frameIndex],
-        .renderableDataAddress = renderableDataAddress[frameIndex],
+        .globalDataAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex),
+        .indirectAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex),
+        .renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex),
         .numRenderables = scene.numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
@@ -400,7 +385,7 @@ void GfxSortRenderables(Scene &scene)
 
     MeshOffsetsPushConstants meshOffsetsPushConstants = 
     {
-        .indirectAddress = indirectBufferAddress[frameIndex],
+        .indirectAddress = indirectDataAddress,
         .numMeshes = numMeshes
     };
 
@@ -412,9 +397,9 @@ void GfxSortRenderables(Scene &scene)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
     CalculateIndicesPushConstants calculateIndicesPushConstants =
     {
-        .indirectAddress = indirectBufferAddress[frameIndex],
-        .renderableDataAddress = renderableDataAddress[frameIndex],
-        .renderableIndexAddress = renderableIndexAddress[frameIndex],
+        .indirectAddress = indirectDataAddress,
+        .renderableDataAddress = renderableDataAddress,
+        .renderableIndexAddress = renderableIndexAddress,
         .numRenderables = scene.numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
@@ -783,37 +768,12 @@ float GfxGetAspectRatio()
 
 void GfxCreateShaderData()
 {
-    VkBufferCreateInfo bufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(GlobalData),
-            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
-    VmaAllocationCreateInfo allocCreateInfo =
-        {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(
-            vmaCreateBuffer(
-                allocator,
-                &bufferInfo,
-                &allocCreateInfo,
-                &globalDataBuffers[i].buffer,
-                &globalDataBuffers[i].alloc,
-                &globalDataBuffers[i].allocInfo));
-        VkBufferDeviceAddressInfo bdaInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = globalDataBuffers[i].buffer};
-        globalDataBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &bdaInfo);
-
-        char allocName[96];
-        sprintf(allocName, "Global Data Allocation: %i", i);
-
-        vmaSetAllocationName(allocator, globalDataBuffers[i].alloc, allocName);
-    }
+    BufferCreateInfo bufferInfo = {
+        .debugName = "Global Data Buffer",
+        .size = sizeof(GlobalData),
+        .flags = BUFFER_FLAG_PER_FRAME | BUFFER_FLAG_MAPPED
+    };
+    globalDataBuffer = CreateBuffer(&bufferInfo);
 }
 
 void GfxCreateSyncObjects()
@@ -1206,7 +1166,7 @@ void GfxSetCameraData(glm::mat4 &cameraView, glm::vec3 cameraPos, float fov, flo
 
     memcpy(globalData.frustumPlanes, frustumPlanes, sizeof(glm::vec4) * 6);
 
-    memcpy(globalDataBuffers[frameIndex].allocInfo.pMappedData, &globalData, sizeof(globalData));
+    memcpy(GetBufferMappedAddress(globalDataBuffer, frameIndex), &globalData, sizeof(GlobalData));
 }
 
 void GfxCreateImGui()
@@ -1260,8 +1220,11 @@ void GfxInit()
 #endif
     GfxCreateBindlessRenderableBuffer();
     GfxCreateRenderableIndexBuffer();
-    GfxCreateBindlessDesc();
     GfxCreateIndirectBuffer();
+
+
+
+    GfxCreateBindlessDesc();
     GfxCreateComputePipelines();
 }
 
@@ -1335,9 +1298,9 @@ void GfxRenderScene(VkCommandBuffer &cmd)
 
     MatGenericPushConstants matPushConstants =
     {
-        .globalDataAddress = globalDataBuffers[frameIndex].deviceAddress,
-        .renderableDataAddress = renderableDataAddress[frameIndex],
-        .renderableIndexAddress = renderableIndexAddress[frameIndex]
+        .globalDataAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex),
+        .renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex),
+        .renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex)
     };
     vkCmdPushConstants(cmd, pipeline->layout, VK_SHADER_STAGE_ALL, 0, sizeof(MatGenericPushConstants), &matPushConstants);
 #endif
@@ -1348,15 +1311,14 @@ void GfxRenderScene(VkCommandBuffer &cmd)
     vkCmdBindVertexBuffers(cmd, 0, 1, &vertBuffer, &vOffset);
     vkCmdBindIndexBuffer(cmd, GetMeshIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexedIndirect(cmd, indirectDataBuffers[frameIndex], 0, (uint32_t)GetNumMeshes(), sizeof(Mesh));
+    vkCmdDrawIndexedIndirect(cmd, GetBufferVK(indirectDataBuffer, frameIndex), 0, (uint32_t)GetNumMeshes(), sizeof(Mesh));
 }
 
 void GfxSetRenderableData(Scene *pScene)
 {
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        memcpy(renderableDataAllocInfo[i].pMappedData, pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
-        // memcpy(renderableIndexAllocInfo[i].pMappedData, renderableIndices, sizeof(uint32_t) * pScene->numRenderables);
+        memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
     }
 }
 void GfxWaitForFrame()
@@ -1506,14 +1468,8 @@ void GfxDestroy()
 
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        vmaDestroyBuffer(allocator, globalDataBuffers[i].buffer, globalDataBuffers[i].alloc);
-
         vkDestroyFence(device, fences[i], nullptr);
         vkDestroySemaphore(device, imageAcquiredSemaphores[i], nullptr);
-
-        vmaDestroyBuffer(allocator, renderableIndexBuffers[i], renderableIndexAllocations[i]);
-        vmaDestroyBuffer(allocator, renderableDataBuffers[i], renderableDataAllocations[i]);
-        vmaDestroyBuffer(allocator, indirectDataBuffers[i], indirectDataAllocations[i]);
     }
     for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
@@ -1556,109 +1512,32 @@ GLFWwindow *GfxGetWindow()
 
 void GfxCreateRenderableIndexBuffer()
 {
-    VkBufferCreateInfo bufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(uint32_t) * MAX_RENDERABLES,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
-    VmaAllocationCreateInfo allocCreateInfo =
-        {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(
-            vmaCreateBuffer(
-                allocator,
-                &bufferInfo,
-                &allocCreateInfo,
-                &renderableIndexBuffers[i],
-                &renderableIndexAllocations[i],
-                &renderableIndexAllocInfo[i]));
-        VkBufferDeviceAddressInfo bdaInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = renderableIndexBuffers[i]};
-        renderableIndexAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
-
-        char allocName[96];
-        sprintf(allocName, "Renderable Indices Allocation: %i", i);
-
-        vmaSetAllocationName(allocator, renderableIndexAllocations[i], allocName);
-    }
+    BufferCreateInfo bufferInfo = {
+        .debugName = "Renderable Index Buffer",
+        .size = sizeof(uint32_t) * MAX_RENDERABLES,
+        .flags = BUFFER_FLAG_PER_FRAME
+    };
+    renderableIndexBuffer = CreateBuffer(&bufferInfo);
 }
 
 void GfxCreateBindlessRenderableBuffer()
 {
-    VkBufferCreateInfo bufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(RenderableData) * MAX_RENDERABLES,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT};
-    VmaAllocationCreateInfo allocCreateInfo =
-        {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(
-            vmaCreateBuffer(
-                allocator,
-                &bufferInfo,
-                &allocCreateInfo,
-                &renderableDataBuffers[i],
-                &renderableDataAllocations[i],
-                &renderableDataAllocInfo[i]));
-        VkBufferDeviceAddressInfo bdaInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = renderableDataBuffers[i]};
-        renderableDataAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
-
-        char allocName[96];
-        sprintf(allocName, "Renderable Data Allocation: %i", i);
-
-        vmaSetAllocationName(allocator, renderableDataAllocations[i], allocName);
-    }
+    BufferCreateInfo bufferInfo = {
+        .debugName = "Renderable Data Buffer",
+        .size = sizeof(RenderableData) * MAX_RENDERABLES,
+        .flags = BUFFER_FLAG_PER_FRAME
+    };
+    renderableDataBuffer = CreateBuffer(&bufferInfo);
 }
 
 void GfxCreateIndirectBuffer()
 {
-    VkBufferCreateInfo bufferInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(Mesh) * MAX_MESHES,
-            .usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT};
-    VmaAllocationCreateInfo allocCreateInfo =
-        {
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                     VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-                     VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        VK_CHECK(
-            vmaCreateBuffer(
-                allocator,
-                &bufferInfo,
-                &allocCreateInfo,
-                &indirectDataBuffers[i],
-                &indirectDataAllocations[i],
-                &indirectDataAllocInfo[i]));
-        VkBufferDeviceAddressInfo bdaInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = indirectDataBuffers[i]
-        };
-        
-        indirectBufferAddress[i] = vkGetBufferDeviceAddress(device, &bdaInfo);
-        
-        char allocName[96];
-        sprintf(allocName, "Indirect Data Allocation: %i", i);
-
-        vmaSetAllocationName(allocator, indirectDataAllocations[i], allocName);
-    }
+    BufferCreateInfo bufferInfo = {
+        .debugName = "Indirect Buffer",
+        .size = sizeof(Mesh) * MAX_MESHES,
+        .flags = BUFFER_FLAG_INDIRECT_BUFFER | BUFFER_FLAG_PER_FRAME
+    };
+    indirectDataBuffer = CreateBuffer(&bufferInfo);
 }
 
 void GfxCreateBindlessDesc()
