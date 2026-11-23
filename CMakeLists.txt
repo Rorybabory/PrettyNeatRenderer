@@ -21,6 +21,24 @@ find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(ktx CONFIG REQUIRED)
 
+# Fetch OpenXR
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_CONFORMANCE_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    OpenXR
+    GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
+    GIT_TAG        release-1.1.43 # Check GitHub for the latest release tag
+)
+FetchContent_MakeAvailable(OpenXR)
+target_compile_definitions(Renderer PRIVATE XR_USE_GRAPHICS_API_VULKAN)
+if(WIN32)
+    target_compile_definitions(Renderer PRIVATE XR_USE_PLATFORM_WIN32)
+elseif(UNIX AND NOT ANDROID)
+    target_compile_definitions(Renderer PRIVATE XR_USE_PLATFORM_XLIB)
+endif()
+
 # Fetch Dear ImGui (newest release)
 FetchContent_Declare(
     imgui
