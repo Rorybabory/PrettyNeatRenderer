@@ -679,22 +679,27 @@ BufferID CreateBuffer(BufferCreateInfo * pCreateInfo)
         .size = pCreateInfo->size,
         .usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
     };
-    if (pCreateInfo->flags | BUFFER_FLAG_VERTEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;    
-    if (pCreateInfo->flags | BUFFER_FLAG_INDEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;    
-    if (pCreateInfo->flags | BUFFER_FLAG_INDIRECT_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;    
-    if (pCreateInfo->flags | BUFFER_FLAG_TRANSFER_SRC) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;    
-    if (pCreateInfo->flags | BUFFER_FLAG_TRANSFER_DST) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_VERTEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_INDEX_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_INDIRECT_BUFFER) bufferInfo.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_TRANSFER_SRC) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_TRANSFER_DST) bufferInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;    
 
             
     VmaAllocationCreateInfo allocCreateInfo =
     {
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                 VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT,
+        .flags = 0,
+
         .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
     };
-    if (pCreateInfo->flags | BUFFER_FLAG_MAPPED) allocCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;    
+    if (pCreateInfo->flags & BUFFER_FLAG_MAPPED)
+    {
+        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                                VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    }    
     
-    uint32_t numBuffers = pCreateInfo->flags | BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
+    uint32_t numBuffers = pCreateInfo->flags & BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
 
     for (uint32_t i = 0; i < numBuffers; ++i)
     {
@@ -745,7 +750,7 @@ void ClearBufferRegistry()
 {
     for (uint32_t i = 0; i < bufferRegistryCount; ++i)
     {
-        uint32_t numBuffers = bufferRegistry[i].flags | BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
+        uint32_t numBuffers = bufferRegistry[i].flags & BUFFER_FLAG_PER_FRAME ? FRAMES_IN_FLIGHT : 1;
         for (uint32_t j = 0; j < numBuffers; ++j)
         {
             vmaDestroyBuffer(allocator, bufferRegistry[i].buffer[j], bufferRegistry[i].allocation[j]);

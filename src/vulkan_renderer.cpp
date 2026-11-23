@@ -1318,7 +1318,7 @@ void GfxSetRenderableData(Scene *pScene)
 {
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
-        memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
+        memcpy(GetBufferMappedAddress(renderableDataBuffer, i), pScene->pRenderableData, sizeof(RenderableData) * pScene->numRenderables);
     }
 }
 void GfxWaitForFrame()
@@ -1525,7 +1525,7 @@ void GfxCreateBindlessRenderableBuffer()
     BufferCreateInfo bufferInfo = {
         .debugName = "Renderable Data Buffer",
         .size = sizeof(RenderableData) * MAX_RENDERABLES,
-        .flags = BUFFER_FLAG_PER_FRAME
+        .flags = BUFFER_FLAG_PER_FRAME | BUFFER_FLAG_MAPPED
     };
     renderableDataBuffer = CreateBuffer(&bufferInfo);
 }
@@ -1535,7 +1535,7 @@ void GfxCreateIndirectBuffer()
     BufferCreateInfo bufferInfo = {
         .debugName = "Indirect Buffer",
         .size = sizeof(Mesh) * MAX_MESHES,
-        .flags = BUFFER_FLAG_INDIRECT_BUFFER | BUFFER_FLAG_PER_FRAME
+        .flags = BUFFER_FLAG_INDIRECT_BUFFER | BUFFER_FLAG_PER_FRAME | BUFFER_FLAG_MAPPED
     };
     indirectDataBuffer = CreateBuffer(&bufferInfo);
 }
