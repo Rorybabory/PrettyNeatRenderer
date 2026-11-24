@@ -236,7 +236,6 @@ int main()
         bool updateFrustum = !(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
 
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
-
         GfxImguiNewFrame();
         ImGui::Begin("Test Imgui window");
         ImGui::Text("Hello World!!!");

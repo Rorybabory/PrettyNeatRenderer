@@ -44,6 +44,7 @@ void GfxCreateImGui();
 void GfxImguiNewFrame();
 #ifdef USE_OPENXR
 void GfxCreateOpenXR();
+void GfxHandleOpenXREvents();
 #endif
 void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 

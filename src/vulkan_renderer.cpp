@@ -202,6 +202,10 @@ BufferID globalDataBuffer;
     XrDebugUtilsMessengerEXT xrDebugUtilsMessenger;
     XrSystemId xrSystemID;
     XrSystemProperties xrSystemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
+    XrEventDataBuffer xrEventData{XR_TYPE_EVENT_DATA_BUFFER};
+    XrSession xrSession;
+    bool xrSessionRunning = false;
+    bool xrApplicationRunning = false;
     #define OPENXR_CHECK(x, y)                                                                         \
     {                                                                                              \
         XrResult result = (x);                                                                     \
@@ -329,6 +333,7 @@ void GfxCreateInstance()
 XrBool32 GfxOpenXRMessageCallback(XrDebugUtilsMessageSeverityFlagsEXT messageSeverity, XrDebugUtilsMessageTypeFlagsEXT messageType, const XrDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
 {
     spdlog::info("{}", pCallbackData->message);
+    return true;
 }
 void GfxCreateOpenXR()
 {
@@ -377,6 +382,87 @@ void GfxCreateOpenXR()
     };
     xrGetSystem(xrInstance, &systemGetInfo, &xrSystemID);
     xrGetSystemProperties(xrInstance, xrSystemID, &xrSystemProperties);
+
+    XrGraphicsBindingVulkan2KHR graphicsBinding = {
+        .type = XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR,
+        .instance = instance,
+        .physicalDevice = physicalDevice,
+        .device = device,
+        .queueFamilyIndex = queueFamily,
+        .queueIndex = 0
+    };
+    XrSessionCreateInfo sessionCreateInfo{
+        .type = XR_TYPE_SESSION_CREATE_INFO,
+        .next = &graphicsBinding,
+        .systemId = xrSystemID
+    };
+    xrCreateSession(xrInstance, &sessionCreateInfo, &xrSession);
+    xrSessionRunning = true;
+    xrApplicationRunning = true;
+}
+void GfxHandleOpenXREvents()
+{
+    switch (xrEventData.type)
+    {
+        case XR_TYPE_EVENT_DATA_EVENTS_LOST: {
+            XrEventDataEventsLost * eventsLost = (XrEventDataEventsLost*) &xrEventData;
+            spdlog::info("OPENXR: Events Lost: {}", eventsLost->lostEventCount);
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING: {
+            XrEventDataInstanceLossPending  * instanceLossPending = (XrEventDataInstanceLossPending *) &xrEventData;
+            spdlog::info("OPENXR: Instance Loss Pending at: {}", instanceLossPending->lossTime);
+            xrSessionRunning = false;
+            xrApplicationRunning = false;
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED: {
+            XrEventDataInteractionProfileChanged *interactionProfileChanged = (XrEventDataInteractionProfileChanged *) &xrEventData;
+            if (interactionProfileChanged->session != xrSession) 
+            {
+                spdlog::info("OPENXR: XR Interaction Profile Changed for Unknown Session");
+            }
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+            XrEventDataReferenceSpaceChangePending *referenceSpaceChangePending = (XrEventDataReferenceSpaceChangePending  *) &xrEventData;
+            if (referenceSpaceChangePending->session != xrSession) 
+            {
+                spdlog::info("OPENXR: Reference Space Change Pending for Unknown Session");
+            }
+            break;
+        }
+        case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
+            XrEventDataSessionStateChanged *sessionStateChanged = (XrEventDataSessionStateChanged *) &xrEventData;
+            if (sessionStateChanged->session != xrSession) {
+                spdlog::info("OPENXR: Session State Changed for Unknown Session");
+                break;
+            }
+            if (sessionStateChanged->state == XR_SESSION_STATE_READY) 
+            {
+                XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
+                sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+                xrBeginSession(xrSession, &sessionBeginInfo);
+                xrSessionRunning = true;
+            }
+            else if (sessionStateChanged->state == XR_SESSION_STATE_STOPPING) 
+            {
+                xrEndSession(xrSession);
+                xrSessionRunning = false;
+            }
+            else if (sessionStateChanged->state == XR_SESSION_STATE_EXITING) 
+            {
+                xrSessionRunning = false;
+                xrApplicationRunning = false;
+            }
+            else if (sessionStateChanged->state == XR_SESSION_STATE_LOSS_PENDING) 
+            {
+                xrSessionRunning = false;
+                xrApplicationRunning = false;
+            }
+            break;
+        }
+    }
 }
 #endif
 
@@ -1320,8 +1406,17 @@ void GfxInit()
     GfxCreateComputePipelines();
 }
 
+
 int GfxUpdate()
 {
+    #ifdef USE_OPENXR
+        xrEventData = {XR_TYPE_EVENT_DATA_BUFFER};
+        XrResult result = xrPollEvent(xrInstance, &xrEventData);
+        GfxHandleOpenXREvents();
+        if (!xrSessionRunning || !xrApplicationRunning) return 0;
+        return result == XR_SUCCESS;
+    #endif
+
     glfwPollEvents();
     glfwSwapBuffers(window);
 
