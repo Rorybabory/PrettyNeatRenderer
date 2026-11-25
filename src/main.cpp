@@ -236,11 +236,13 @@ int main()
         bool updateFrustum = !(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
 
         glm::mat4 cameraView = glm::lookAt(mCamera.pos, mCamera.pos + mCamera.forward, glm::vec3(0.0f, 1.0f, 0.0f));
+        #ifndef USE_OPENXR
         GfxImguiNewFrame();
         ImGui::Begin("Test Imgui window");
         ImGui::Text("Hello World!!!");
         ImGui::End();
         ImGui::Render();
+        #endif
         GfxWaitForFrame();
         GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f, updateFrustum);
         GfxSortRenderables(scene);

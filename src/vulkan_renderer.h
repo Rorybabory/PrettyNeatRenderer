@@ -43,8 +43,11 @@ void GfxCreateComputePipelines();
 void GfxCreateImGui();
 void GfxImguiNewFrame();
 #ifdef USE_OPENXR
-void GfxCreateOpenXR();
+void GfxCreateOpenXRInstance();
+void GfxCreateOpenXRSession();
 void GfxHandleOpenXREvents();
+void GfxGetViewConfigurationViews();
+void GfxCreateXRSwapchain();
 #endif
 void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 

@@ -23,6 +23,10 @@
 // #include <vulkan/vk_enum_string_helper.h>
 #include <vk_mem_alloc.h>
 #include <string.h>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <algorithm>
 #include "vulkan_renderer.h"
 #include <spdlog/spdlog.h>
 #include <glm/glm.hpp>
@@ -198,14 +202,52 @@ PipelineID pipelineIndicesIndirectCS;
 BufferID globalDataBuffer;
 
 #ifdef USE_OPENXR
-    XrInstance xrInstance;
-    XrDebugUtilsMessengerEXT xrDebugUtilsMessenger;
-    XrSystemId xrSystemID;
+    XrInstance xrInstance = XR_NULL_HANDLE;
+    XrDebugUtilsMessengerEXT xrDebugUtilsMessenger = XR_NULL_HANDLE;
+    XrSystemId xrSystemID = XR_NULL_SYSTEM_ID;
     XrSystemProperties xrSystemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
     XrEventDataBuffer xrEventData{XR_TYPE_EVENT_DATA_BUFFER};
-    XrSession xrSession;
+    XrSession xrSession = XR_NULL_HANDLE;
+    XrSessionState xrSessionState = XR_SESSION_STATE_UNKNOWN;
+    XrViewConfigurationType xrApplicationViewConfigurations[] = {XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO};
+    XrViewConfigurationType * xrViewConfigurations;
+    XrViewConfigurationType xrViewConfiguration;
+    XrViewConfigurationView * xrViewConfigurationViews;
+    uint32_t xrViewConfigurationViewCount = 0;
+    struct XrSwapchainInfo
+    {
+        XrSwapchain swapchain = XR_NULL_HANDLE;
+        VkFormat swapchainFormat = VK_FORMAT_UNDEFINED;
+        VkImageView * imageViews;
+        VkImage * images;
+    };
+    XrSwapchainInfo * xrColorSwapchainInfos;
+    XrSwapchainInfo * xrDepthSwapchainInfos;
+
+    XrSpace xrLocalSpace = XR_NULL_HANDLE;
+    struct RenderLayerInfo {
+            XrTime predictedDisplayTime;
+            XrCompositionLayerBaseHeader ** layers;
+            XrCompositionLayerProjection layerProjection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+            XrCompositionLayerProjectionView * layerProjectionViews;
+    };
+
     bool xrSessionRunning = false;
     bool xrApplicationRunning = false;
+    std::vector<std::string> xrVulkanInstanceExtensions;
+    std::vector<std::string> xrVulkanDeviceExtensions;
+
+    static void ParseSpaceDelimitedExtensions(const char *extStr, std::vector<std::string> &out)
+    {
+        out.clear();
+        if (!extStr) return;
+        std::istringstream iss(extStr);
+        std::string token;
+        while (iss >> token)
+        {
+            out.push_back(token);
+        }
+    }
     #define OPENXR_CHECK(x, y)                                                                         \
     {                                                                                              \
         XrResult result = (x);                                                                     \
@@ -282,27 +324,35 @@ void GfxCreateInstance()
             .apiVersion = VK_API_VERSION_1_3};
 
     uint32_t instanceExtensionCountGlfw = 0;
-    uint32_t instanceExtensionCount = 0;
     const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&instanceExtensionCountGlfw);
-    instanceExtensionCount = instanceExtensionCountGlfw + 1;
-    char **instanceExtension = (char **)malloc(sizeof(char *) * instanceExtensionCount);
-
-    for (uint32_t i = 0; i < instanceExtensionCount; ++i)
-    {
-        instanceExtension[i] = (char *)malloc(sizeof(char) * 128);
-    }
-
+    std::vector<std::string> enabledExtStorage;
+    auto addUniqueExt = [&](const char *name) {
+        if (name && std::find(enabledExtStorage.begin(), enabledExtStorage.end(), name) == enabledExtStorage.end())
+            enabledExtStorage.emplace_back(name);
+    };
     for (uint32_t i = 0; i < instanceExtensionCountGlfw; ++i)
     {
-        strcpy(instanceExtension[i], glfwExtensions[i]);
+        addUniqueExt(glfwExtensions[i]);
     }
-    strcpy(instanceExtension[instanceExtensionCountGlfw], VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    addUniqueExt(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#ifdef USE_OPENXR
+    for (const auto &ext : xrVulkanInstanceExtensions)
+    {
+        addUniqueExt(ext.c_str());
+    }
+#endif
+    std::vector<const char *> instanceExtensionPtrs;
+    instanceExtensionPtrs.reserve(enabledExtStorage.size());
+    for (const auto &ext : enabledExtStorage)
+    {
+        instanceExtensionPtrs.push_back(ext.c_str());
+    }
 
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = instanceExtensionCount;
-    createInfo.ppEnabledExtensionNames = (const char *const *)instanceExtension;
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(instanceExtensionPtrs.size());
+    createInfo.ppEnabledExtensionNames = instanceExtensionPtrs.data();
 
     if (enableValidationLayers)
     {
@@ -322,11 +372,7 @@ void GfxCreateInstance()
     VK_CHECK(vkCreateInstance(&createInfo, 0, &instance));
     spdlog::info("Vulkan Instance Created");
 
-    for (uint32_t i = 0; i < instanceExtensionCount; ++i)
-    {
-        free(instanceExtension[i]);
-    }
-    free(instanceExtension);
+
     volkLoadInstance(instance);
 }
 #ifdef USE_OPENXR
@@ -335,55 +381,155 @@ XrBool32 GfxOpenXRMessageCallback(XrDebugUtilsMessageSeverityFlagsEXT messageSev
     spdlog::info("{}", pCallbackData->message);
     return true;
 }
-void GfxCreateOpenXR()
+void GfxCreateOpenXRInstance()
 {
-    XrApplicationInfo appInfo;
-    strncpy(appInfo.applicationName, "XR Demo", XR_MAX_APPLICATION_NAME_SIZE);
+    uint32_t availableExtCount = 0;
+    XrResult extEnumRes = xrEnumerateInstanceExtensionProperties(nullptr, 0, &availableExtCount, nullptr);
+    if (XR_FAILED(extEnumRes))
+    {
+        spdlog::error("xrEnumerateInstanceExtensionProperties failed (XrResult: {})", static_cast<int>(extEnumRes));
+        return;
+    }
+
+    bool hasDebugUtils = false;
+    bool hasVulkanEnable = false;
+    if (availableExtCount > 0)
+    {
+        XrExtensionProperties *availableExts = (XrExtensionProperties *)malloc(sizeof(XrExtensionProperties) * availableExtCount);
+        for (uint32_t i = 0; i < availableExtCount; ++i)
+        {
+            availableExts[i] = {XR_TYPE_EXTENSION_PROPERTIES};
+        }
+        if (XR_SUCCEEDED(xrEnumerateInstanceExtensionProperties(nullptr, availableExtCount, &availableExtCount, availableExts)))
+        {
+            for (uint32_t i = 0; i < availableExtCount; ++i)
+            {
+                if (strcmp(availableExts[i].extensionName, XR_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0)
+                    hasDebugUtils = true;
+                if (strcmp(availableExts[i].extensionName, XR_KHR_VULKAN_ENABLE_EXTENSION_NAME) == 0)
+                    hasVulkanEnable = true;
+            }
+        }
+        free(availableExts);
+    }
+
+    if (!hasVulkanEnable)
+    {
+        spdlog::error("OpenXR runtime does not support required extension {}", XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
+        return;
+    }
+
+    const char *instanceExtensions[2];
+    uint32_t instanceExtensionCount = 0;
+    instanceExtensions[instanceExtensionCount++] = XR_KHR_VULKAN_ENABLE_EXTENSION_NAME;
+    if (hasDebugUtils)
+    {
+        instanceExtensions[instanceExtensionCount++] = XR_EXT_DEBUG_UTILS_EXTENSION_NAME;
+    }
+
+    XrApplicationInfo appInfo = {};
+    strncpy(appInfo.applicationName, "XR Demo", XR_MAX_APPLICATION_NAME_SIZE - 1);
     appInfo.applicationVersion = 1;
-    strncpy(appInfo.engineName, "Pretty Neat Renderer", XR_MAX_ENGINE_NAME_SIZE);
+    strncpy(appInfo.engineName, "Pretty Neat Renderer", XR_MAX_ENGINE_NAME_SIZE - 1);
     appInfo.engineVersion = 1;
     appInfo.apiVersion = XR_API_VERSION_1_0;
-    
-    const char * instanceExtensions[] = {
-        XR_EXT_DEBUG_UTILS_EXTENSION_NAME,
-        XR_KHR_VULKAN_ENABLE_EXTENSION_NAME
-    };
-    // uint32_t apiLayerCount = 0;
-    // xrEnumerateApiLayerProperties(0, &apiLayerCount, nullptr);
-    // XrApiLayerProperties * apiLayerProperties = (XrApiLayerProperties*) malloc(sizeof(XrApiLayerProperties) * apiLayerCount);
-    // for (uint32_t i = 0; i < apiLayerCount; ++i)
-    //     apiLayerProperties[i] = {.type = XR_TYPE_API_LAYER_PROPERTIES};
-    // xrEnumerateApiLayerProperties(0, &apiLayerCount, apiLayerProperties);
 
     XrInstanceCreateInfo instanceCreateInfo = {
         .type = XR_TYPE_INSTANCE_CREATE_INFO,
         .createFlags = 0,
         .applicationInfo = appInfo,
-        .enabledExtensionCount = 2,
+        .enabledExtensionCount = instanceExtensionCount,
         .enabledExtensionNames = instanceExtensions
     };
-    xrCreateInstance(&instanceCreateInfo, &xrInstance);
+    XrResult createRes = xrCreateInstance(&instanceCreateInfo, &xrInstance);
+    if (XR_FAILED(createRes) || xrInstance == XR_NULL_HANDLE)
+    {
+        spdlog::error("xrCreateInstance failed (XrResult: {})", static_cast<int>(createRes));
+        xrInstance = XR_NULL_HANDLE;
+        return;
+    }
 
-    //Create Debug Messanger
-    XrDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCI{XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-    debugUtilsMessengerCI.messageSeverities = XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debugUtilsMessengerCI.messageTypes = XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
-    debugUtilsMessengerCI.userCallback = (PFN_xrDebugUtilsMessengerCallbackEXT)GfxOpenXRMessageCallback;
-    debugUtilsMessengerCI.userData = nullptr;
+    // Create Debug Messenger
+    if (hasDebugUtils)
+    {
+        XrDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCI{XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+        debugUtilsMessengerCI.messageSeverities = XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debugUtilsMessengerCI.messageTypes = XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT | XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
+        debugUtilsMessengerCI.userCallback = (PFN_xrDebugUtilsMessengerCallbackEXT)GfxOpenXRMessageCallback;
+        debugUtilsMessengerCI.userData = nullptr;
 
-    PFN_xrCreateDebugUtilsMessengerEXT xrCreateDebugUtilsMessengerEXT;
-    xrGetInstanceProcAddr(xrInstance, "xrCreateDebugUtilsMessengerEXT", (PFN_xrVoidFunction *)&xrCreateDebugUtilsMessengerEXT);
-    xrCreateDebugUtilsMessengerEXT(xrInstance, &debugUtilsMessengerCI, &xrDebugUtilsMessenger);
+        PFN_xrCreateDebugUtilsMessengerEXT xrCreateDebugUtilsMessengerEXT = nullptr;
+        XrResult procRes = xrGetInstanceProcAddr(xrInstance, "xrCreateDebugUtilsMessengerEXT", (PFN_xrVoidFunction *)&xrCreateDebugUtilsMessengerEXT);
+        if (XR_SUCCEEDED(procRes) && xrCreateDebugUtilsMessengerEXT != nullptr)
+        {
+            OPENXR_CHECK(xrCreateDebugUtilsMessengerEXT(xrInstance, &debugUtilsMessengerCI, &xrDebugUtilsMessenger), "xrCreateDebugUtilsMessengerEXT");
+        }
+    }
 
-    //Obtain System ID
+    // Obtain System ID
     XrSystemGetInfo systemGetInfo = {
         .type = XR_TYPE_SYSTEM_GET_INFO,
         .formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY
     };
-    xrGetSystem(xrInstance, &systemGetInfo, &xrSystemID);
-    xrGetSystemProperties(xrInstance, xrSystemID, &xrSystemProperties);
+    XrResult sysRes = xrGetSystem(xrInstance, &systemGetInfo, &xrSystemID);
+    if (XR_FAILED(sysRes))
+    {
+        OPENXR_CHECK(sysRes, "xrGetSystem");
+        xrSystemID = XR_NULL_SYSTEM_ID;
+        return;
+    }
+    OPENXR_CHECK(xrGetSystemProperties(xrInstance, xrSystemID, &xrSystemProperties), "xrGetSystemProperties");
 
-    XrGraphicsBindingVulkan2KHR graphicsBinding = {
+    PFN_xrGetVulkanGraphicsRequirementsKHR xrGetVulkanGraphicsRequirementsKHR = nullptr;
+    XrResult reqProcRes = xrGetInstanceProcAddr(xrInstance, "xrGetVulkanGraphicsRequirementsKHR", (PFN_xrVoidFunction *)&xrGetVulkanGraphicsRequirementsKHR);
+    if (XR_FAILED(reqProcRes) || xrGetVulkanGraphicsRequirementsKHR == nullptr)
+    {
+        OPENXR_CHECK(reqProcRes, "xrGetInstanceProcAddr(xrGetVulkanGraphicsRequirementsKHR)");
+        return;
+    }
+    XrGraphicsRequirementsVulkanKHR graphicsRequirements = {XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR};
+    XrResult reqRes = xrGetVulkanGraphicsRequirementsKHR(xrInstance, xrSystemID, &graphicsRequirements);
+    if (XR_FAILED(reqRes))
+    {
+        OPENXR_CHECK(reqRes, "xrGetVulkanGraphicsRequirementsKHR");
+        return;
+    }
+
+    PFN_xrGetVulkanInstanceExtensionsKHR xrGetVulkanInstanceExtensionsKHR = nullptr;
+    if (XR_SUCCEEDED(xrGetInstanceProcAddr(xrInstance, "xrGetVulkanInstanceExtensionsKHR", (PFN_xrVoidFunction *)&xrGetVulkanInstanceExtensionsKHR)) && xrGetVulkanInstanceExtensionsKHR)
+    {
+        uint32_t bufCount = 0;
+        if (XR_SUCCEEDED(xrGetVulkanInstanceExtensionsKHR(xrInstance, xrSystemID, 0, &bufCount, nullptr)) && bufCount > 0)
+        {
+            std::string buf(bufCount, '\0');
+            if (XR_SUCCEEDED(xrGetVulkanInstanceExtensionsKHR(xrInstance, xrSystemID, bufCount, &bufCount, buf.data())))
+            {
+                ParseSpaceDelimitedExtensions(buf.c_str(), xrVulkanInstanceExtensions);
+            }
+        }
+    }
+
+    PFN_xrGetVulkanDeviceExtensionsKHR xrGetVulkanDeviceExtensionsKHR = nullptr;
+    if (XR_SUCCEEDED(xrGetInstanceProcAddr(xrInstance, "xrGetVulkanDeviceExtensionsKHR", (PFN_xrVoidFunction *)&xrGetVulkanDeviceExtensionsKHR)) && xrGetVulkanDeviceExtensionsKHR)
+    {
+        uint32_t bufCount = 0;
+        if (XR_SUCCEEDED(xrGetVulkanDeviceExtensionsKHR(xrInstance, xrSystemID, 0, &bufCount, nullptr)) && bufCount > 0)
+        {
+            std::string buf(bufCount, '\0');
+            if (XR_SUCCEEDED(xrGetVulkanDeviceExtensionsKHR(xrInstance, xrSystemID, bufCount, &bufCount, buf.data())))
+            {
+                ParseSpaceDelimitedExtensions(buf.c_str(), xrVulkanDeviceExtensions);
+            }
+        }
+    }
+}
+
+void GfxCreateOpenXRSession()
+{
+    if (xrInstance == XR_NULL_HANDLE || xrSystemID == XR_NULL_SYSTEM_ID)
+        return;
+
+    XrGraphicsBindingVulkanKHR graphicsBinding = {
         .type = XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR,
         .instance = instance,
         .physicalDevice = physicalDevice,
@@ -396,10 +542,154 @@ void GfxCreateOpenXR()
         .next = &graphicsBinding,
         .systemId = xrSystemID
     };
-    xrCreateSession(xrInstance, &sessionCreateInfo, &xrSession);
-    xrSessionRunning = true;
+    XrResult sessionRes = xrCreateSession(xrInstance, &sessionCreateInfo, &xrSession);
+    if (XR_FAILED(sessionRes))
+    {
+        OPENXR_CHECK(sessionRes, "xrCreateSession");
+        xrSession = XR_NULL_HANDLE;
+        return;
+    }
+    xrSessionRunning = false;
     xrApplicationRunning = true;
+
+    XrReferenceSpaceCreateInfo referenceSpaceCreateInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+    referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    referenceSpaceCreateInfo.poseInReferenceSpace = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+    OPENXR_CHECK(xrCreateReferenceSpace(xrSession, &referenceSpaceCreateInfo, &xrLocalSpace), "xrCreateReferenceSpace");
+
+    GfxGetViewConfigurationViews();
 }
+void GfxGetViewConfigurationViews()
+{
+    uint32_t xrViewConfigurationCount = 0;
+    xrEnumerateViewConfigurations(xrInstance, xrSystemID, 0, &xrViewConfigurationCount, nullptr);
+    xrViewConfigurations = (XrViewConfigurationType*) malloc(sizeof(XrViewConfigurationType) * xrViewConfigurationCount);
+    xrEnumerateViewConfigurations(xrInstance, xrSystemID, xrViewConfigurationCount, &xrViewConfigurationCount, xrViewConfigurations);
+
+    xrViewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
+    for (uint32_t i = 0; i < 2 && xrViewConfiguration == XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM; ++i)
+    {
+        for (uint32_t j = 0; j < xrViewConfigurationCount; ++j)
+        {
+            if (xrViewConfigurations[j] == xrApplicationViewConfigurations[i]) {
+                xrViewConfiguration = xrViewConfigurations[j];
+                break;
+            }
+        }
+    }
+    if (xrViewConfiguration == XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM)
+    {
+        spdlog::error("Failed to find a view configuration type, defaulting to XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO");
+        xrViewConfiguration = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    }
+    
+    xrEnumerateViewConfigurationViews(xrInstance, xrSystemID, xrViewConfiguration, 0, &xrViewConfigurationViewCount, nullptr);
+    xrViewConfigurationViews = (XrViewConfigurationView*)malloc(sizeof(XrViewConfigurationView) * xrViewConfigurationViewCount);
+    for (uint32_t i = 0; i < xrViewConfigurationViewCount; ++i)
+    {
+        xrViewConfigurationViews[i] = {XR_TYPE_VIEW_CONFIGURATION_VIEW};
+    }
+    xrEnumerateViewConfigurationViews(xrInstance, xrSystemID, xrViewConfiguration, xrViewConfigurationViewCount, &xrViewConfigurationViewCount, xrViewConfigurationViews);
+}
+void GfxCreateXRSwapchain()
+{
+    if (xrSession == XR_NULL_HANDLE || xrViewConfigurationViewCount == 0)
+        return;
+
+    uint32_t formatCount = 0;
+    OPENXR_CHECK(xrEnumerateSwapchainFormats(xrSession, 0, &formatCount, nullptr), "xrEnumerateSwapchainFormats");
+    int64_t * formats = (int64_t*)malloc(sizeof(int64_t) * formatCount);
+    OPENXR_CHECK(xrEnumerateSwapchainFormats(xrSession, formatCount, &formatCount, formats), "xrEnumerateSwapchainFormats");
+    free(formats);
+
+    xrColorSwapchainInfos = (XrSwapchainInfo * ) malloc(sizeof(XrSwapchainInfo) * xrViewConfigurationViewCount);
+    xrDepthSwapchainInfos = (XrSwapchainInfo * ) malloc(sizeof(XrSwapchainInfo) * xrViewConfigurationViewCount);
+    for (size_t i = 0; i < xrViewConfigurationViewCount; i++) {
+        XrSwapchainInfo * colorSwapchainInfo = &xrColorSwapchainInfos[i];
+        XrSwapchainInfo * depthSwapchainInfo = &xrDepthSwapchainInfos[i];
+        *colorSwapchainInfo = {};
+        *depthSwapchainInfo = {};
+
+        XrSwapchainCreateInfo swapchainCreateInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        swapchainCreateInfo.createFlags = 0;
+        swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        swapchainCreateInfo.format = (int64_t) VK_FORMAT_B8G8R8A8_SRGB;
+        swapchainCreateInfo.sampleCount = xrViewConfigurationViews[i].recommendedSwapchainSampleCount;  // Use the recommended values from the XrViewConfigurationView.
+        swapchainCreateInfo.width = xrViewConfigurationViews[i].recommendedImageRectWidth;
+        swapchainCreateInfo.height = xrViewConfigurationViews[i].recommendedImageRectHeight;
+        swapchainCreateInfo.faceCount = 1;
+        swapchainCreateInfo.arraySize = 1;
+        swapchainCreateInfo.mipCount = 1;
+        OPENXR_CHECK(xrCreateSwapchain(xrSession, &swapchainCreateInfo, &colorSwapchainInfo->swapchain), "xrCreateSwapchain(color)");
+        colorSwapchainInfo->swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
+
+        swapchainCreateInfo.createFlags = 0;
+        swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        swapchainCreateInfo.format = (int64_t)GfxGetDepthFormat();
+        swapchainCreateInfo.sampleCount = xrViewConfigurationViews[i].recommendedSwapchainSampleCount;  // Use the recommended values from the XrViewConfigurationView.
+        swapchainCreateInfo.width = xrViewConfigurationViews[i].recommendedImageRectWidth;
+        swapchainCreateInfo.height = xrViewConfigurationViews[i].recommendedImageRectHeight;
+        swapchainCreateInfo.faceCount = 1;
+        swapchainCreateInfo.arraySize = 1;
+        swapchainCreateInfo.mipCount = 1;
+        OPENXR_CHECK(xrCreateSwapchain(xrSession, &swapchainCreateInfo, &depthSwapchainInfo->swapchain), "xrCreateSwapchain(depth)");
+        depthSwapchainInfo->swapchainFormat = GfxGetDepthFormat();
+
+        uint32_t colorSwapchainImageCount = 0;
+        OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo->swapchain, 0, &colorSwapchainImageCount, nullptr), "xrEnumerateSwapchainImages(color count)");
+        XrSwapchainImageVulkanKHR * colorSwapchainImages = (XrSwapchainImageVulkanKHR*)malloc(sizeof(XrSwapchainImageVulkanKHR) * colorSwapchainImageCount);
+        for (uint32_t j = 0; j < colorSwapchainImageCount; ++j)
+        {
+            colorSwapchainImages[j] = {XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
+        }
+        OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo->swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, (XrSwapchainImageBaseHeader*) colorSwapchainImages), "xrEnumerateSwapchainImages(color)");
+
+        uint32_t depthSwapchainImageCount = 0;
+        OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo->swapchain, 0, &depthSwapchainImageCount, nullptr), "xrEnumerateSwapchainImages(depth count)");
+        XrSwapchainImageVulkanKHR * depthSwapchainImages = (XrSwapchainImageVulkanKHR*)malloc(sizeof(XrSwapchainImageVulkanKHR) * depthSwapchainImageCount);
+        for (uint32_t j = 0; j < depthSwapchainImageCount; ++j)
+        {
+            depthSwapchainImages[j] = {XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR};
+        }
+        OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo->swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, (XrSwapchainImageBaseHeader*) depthSwapchainImages), "xrEnumerateSwapchainImages(depth)");
+        
+        colorSwapchainInfo->imageViews = (VkImageView*)malloc(sizeof(VkImageView) * colorSwapchainImageCount);
+        depthSwapchainInfo->imageViews = (VkImageView*)malloc(sizeof(VkImageView) * depthSwapchainImageCount);
+        colorSwapchainInfo->images = (VkImage*)malloc(sizeof(VkImage) * colorSwapchainImageCount);
+        depthSwapchainInfo->images = (VkImage*)malloc(sizeof(VkImage) * depthSwapchainImageCount);
+        for (uint32_t j = 0; j < colorSwapchainImageCount; j++) {
+            VkImageViewCreateInfo viewCreateInfo {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            viewCreateInfo.image = colorSwapchainImages[j].image;
+            viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewCreateInfo.format = colorSwapchainInfo->swapchainFormat;
+            viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            viewCreateInfo.subresourceRange.baseMipLevel = 0;
+            viewCreateInfo.subresourceRange.levelCount = 1;
+            viewCreateInfo.subresourceRange.baseArrayLayer = 0;
+            viewCreateInfo.subresourceRange.layerCount = 1;
+            VK_CHECK(vkCreateImageView(device, &viewCreateInfo, nullptr, &colorSwapchainInfo->imageViews[j]));
+            colorSwapchainInfo->images[j] = colorSwapchainImages[j].image;
+        }
+        for (uint32_t j = 0; j < depthSwapchainImageCount; j++) {
+            VkImageViewCreateInfo viewCreateInfo {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            viewCreateInfo.image = depthSwapchainImages[j].image;
+            viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewCreateInfo.format = depthSwapchainInfo->swapchainFormat;
+            viewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            viewCreateInfo.subresourceRange.baseMipLevel = 0;
+            viewCreateInfo.subresourceRange.levelCount = 1;
+            viewCreateInfo.subresourceRange.baseArrayLayer = 0;
+            viewCreateInfo.subresourceRange.layerCount = 1;
+            VK_CHECK(vkCreateImageView(device, &viewCreateInfo, nullptr, &depthSwapchainInfo->imageViews[j]));
+            depthSwapchainInfo->images[j] = depthSwapchainImages[j].image;
+
+        }
+
+        free(colorSwapchainImages);
+        free(depthSwapchainImages);
+    }
+}
+
 void GfxHandleOpenXREvents()
 {
     switch (xrEventData.type)
@@ -441,8 +731,8 @@ void GfxHandleOpenXREvents()
             if (sessionStateChanged->state == XR_SESSION_STATE_READY) 
             {
                 XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
-                sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-                xrBeginSession(xrSession, &sessionBeginInfo);
+                sessionBeginInfo.primaryViewConfigurationType = xrViewConfiguration;
+                OPENXR_CHECK(xrBeginSession(xrSession, &sessionBeginInfo), "xrBeginSession");
                 xrSessionRunning = true;
             }
             else if (sessionStateChanged->state == XR_SESSION_STATE_STOPPING) 
@@ -460,6 +750,7 @@ void GfxHandleOpenXREvents()
                 xrSessionRunning = false;
                 xrApplicationRunning = false;
             }
+            xrSessionState = sessionStateChanged->state;
             break;
         }
     }
@@ -610,6 +901,25 @@ void GfxSelectDevice()
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &deviceCount, devices));
     physicalDevice = devices[0];
     free(devices);
+#ifdef USE_OPENXR
+    if (xrInstance != XR_NULL_HANDLE && xrSystemID != XR_NULL_SYSTEM_ID)
+    {
+        PFN_xrGetVulkanGraphicsDeviceKHR xrGetVulkanGraphicsDeviceKHR = nullptr;
+        if (XR_SUCCEEDED(xrGetInstanceProcAddr(xrInstance, "xrGetVulkanGraphicsDeviceKHR", (PFN_xrVoidFunction *)&xrGetVulkanGraphicsDeviceKHR)) && xrGetVulkanGraphicsDeviceKHR)
+        {
+            VkPhysicalDevice xrPhysicalDevice = VK_NULL_HANDLE;
+            XrResult devRes = xrGetVulkanGraphicsDeviceKHR(xrInstance, xrSystemID, instance, &xrPhysicalDevice);
+            if (XR_SUCCEEDED(devRes) && xrPhysicalDevice != VK_NULL_HANDLE)
+            {
+                physicalDevice = xrPhysicalDevice;
+            }
+            else
+            {
+                OPENXR_CHECK(devRes, "xrGetVulkanGraphicsDeviceKHR");
+            }
+        }
+    }
+#endif
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     heapProperties = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};
@@ -649,14 +959,28 @@ void GfxCreateDevice()
             .queueFamilyIndex = queueFamily,
             .queueCount = 1,
             .pQueuePriorities = &qfProperties};
-    const char *deviceExtensions[] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-
-#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
-        VK_KHR_MAINTENANCE_5_EXTENSION_NAME,
-        VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME
-#endif
+    std::vector<std::string> deviceExtensionStorage;
+    auto addUniqueDeviceExt = [&](const char *name) {
+        if (name && std::find(deviceExtensionStorage.begin(), deviceExtensionStorage.end(), name) == deviceExtensionStorage.end())
+            deviceExtensionStorage.emplace_back(name);
     };
+    addUniqueDeviceExt(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#ifdef DESCRIPTOR_HEAP_EXPERIMENTS
+    addUniqueDeviceExt(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
+    addUniqueDeviceExt(VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME);
+#endif
+#ifdef USE_OPENXR
+    for (const auto &ext : xrVulkanDeviceExtensions)
+    {
+        addUniqueDeviceExt(ext.c_str());
+    }
+#endif
+    std::vector<const char *> deviceExtensions;
+    deviceExtensions.reserve(deviceExtensionStorage.size());
+    for (const auto &ext : deviceExtensionStorage)
+    {
+        deviceExtensions.push_back(ext.c_str());
+    }
 
     VkPhysicalDeviceVulkan11Features enabledVk11Features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
@@ -720,13 +1044,8 @@ void GfxCreateDevice()
         .pNext = &features,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queueInfo,
-#ifndef DESCRIPTOR_HEAP_EXPERIMENTS
-        .enabledExtensionCount = 1,
-#else
-        .enabledExtensionCount = 3,
-#endif
-
-        .ppEnabledExtensionNames = &deviceExtensions[0],
+        .enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
+        .ppEnabledExtensionNames = deviceExtensions.data(),
         .pEnabledFeatures = NULL};
     spdlog::info("Number of enabled extensions: {}", deviceInfo.enabledExtensionCount);
     for (uint32_t i = 0; i < deviceInfo.enabledExtensionCount; ++i)
@@ -808,6 +1127,11 @@ void GfxCreateVMA()
 
 void GfxCreateSwapchain()
 {
+    #ifdef USE_OPENXR
+        GfxCreateXRSwapchain();
+        return;
+    #endif
+
     VkExtent2D swapchainExtent = surfaceCaps.currentExtent;
     if (surfaceCaps.currentExtent.width == 0xFFFFFFFF)
     {
@@ -1032,9 +1356,11 @@ VkQueue GfxGetQueue()
 }
 void GfxImguiNewFrame()
 {
+    #ifndef USE_OPENXR
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    #endif
 }
 void GfxCreateDescriptorPool()
 {
@@ -1346,6 +1672,7 @@ void GfxSetCameraData(glm::mat4 &cameraView, glm::vec3 cameraPos, float fov, flo
 
 void GfxCreateImGui()
 {
+    #ifndef USE_OPENXR
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -1372,18 +1699,22 @@ void GfxCreateImGui()
     initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = GfxGetDepthFormat();
     initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     ImGui_ImplVulkan_Init(&initInfo);
+    #endif
 }
 
 void GfxInit()
 {
     GfxCreateWindow();
     #ifdef USE_OPENXR
-    GfxCreateOpenXR();
+    GfxCreateOpenXRInstance();
     #endif
     GfxCreateInstance();
     GfxSetupDebugMessanger();
     GfxSelectDevice();
     GfxCreateDevice();
+    #ifdef USE_OPENXR
+    GfxCreateOpenXRSession();
+    #endif
     GfxCreateSurface();
     GfxCreateVMA();
     GfxCreateSwapchain();
@@ -1410,11 +1741,28 @@ void GfxInit()
 int GfxUpdate()
 {
     #ifdef USE_OPENXR
-        xrEventData = {XR_TYPE_EVENT_DATA_BUFFER};
-        XrResult result = xrPollEvent(xrInstance, &xrEventData);
-        GfxHandleOpenXREvents();
-        if (!xrSessionRunning || !xrApplicationRunning) return 0;
-        return result == XR_SUCCESS;
+        if (xrInstance != XR_NULL_HANDLE)
+        {
+            while (true)
+            {
+                xrEventData = {XR_TYPE_EVENT_DATA_BUFFER};
+                XrResult pollRes = xrPollEvent(xrInstance, &xrEventData);
+                if (pollRes == XR_SUCCESS)
+                {
+                    GfxHandleOpenXREvents();
+                }
+                else if (pollRes == XR_EVENT_UNAVAILABLE)
+                {
+                    break;
+                }
+                else
+                {
+                    OPENXR_CHECK(pollRes, "xrPollEvent");
+                    return 0;
+                }
+            }
+            if (!xrApplicationRunning) return 0;
+        }
     #endif
 
     glfwPollEvents();
@@ -1511,12 +1859,187 @@ void GfxSetRenderableData(Scene *pScene)
 void GfxWaitForFrame()
 {
     VK_CHECK(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
+    #ifndef USE_OPENXR
     VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
+    #endif
 }
 int GfxRender()
 {
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
+    #ifdef USE_OPENXR
+        if (!xrSessionRunning) return 0;
+        XrFrameState frameState{XR_TYPE_FRAME_STATE};
+        XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
+        OPENXR_CHECK(xrWaitFrame(xrSession, &frameWaitInfo, &frameState), "xrWaitFrame");
 
+        XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+        OPENXR_CHECK(xrBeginFrame(xrSession, &frameBeginInfo), "xrBeginFrame");
+        bool rendered = false;
+        RenderLayerInfo renderLayerInfo;
+        renderLayerInfo.predictedDisplayTime = frameState.predictedDisplayTime;
+
+        bool sessionActive = (xrSessionState == XR_SESSION_STATE_SYNCHRONIZED || xrSessionState == XR_SESSION_STATE_VISIBLE || xrSessionState == XR_SESSION_STATE_FOCUSED);
+        if (!(sessionActive && frameState.shouldRender)) {
+            XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+            frameEndInfo.displayTime = frameState.predictedDisplayTime;
+            frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            frameEndInfo.layerCount = 0;
+            frameEndInfo.layers = nullptr;
+            OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
+            return 0;
+        }
+
+        std::vector<XrView> views(xrViewConfigurationViewCount, {XR_TYPE_VIEW});
+        XrViewState viewState{XR_TYPE_VIEW_STATE};
+        XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
+        viewLocateInfo.viewConfigurationType = xrViewConfiguration;
+        viewLocateInfo.displayTime = renderLayerInfo.predictedDisplayTime;
+        viewLocateInfo.space = xrLocalSpace;
+        uint32_t viewCount = 0;
+        OPENXR_CHECK(xrLocateViews(xrSession, &viewLocateInfo, &viewState, static_cast<uint32_t>(views.size()), &viewCount, views.data()), "xrLocateViews");
+    #else
+        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
+    #endif
+
+    #ifdef USE_OPENXR
+        std::vector<XrCompositionLayerProjectionView> projectionViews(viewCount, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
+        renderLayerInfo.layerProjectionViews = projectionViews.data();
+        for (uint32_t i = 0; i < viewCount; i++) 
+        {
+            XrSwapchainInfo &colorSwapchainInfo = xrColorSwapchainInfos[i];
+            XrSwapchainInfo &depthSwapchainInfo = xrDepthSwapchainInfos[i];
+            uint32_t colorImageIndex = 0;
+            uint32_t depthImageIndex = 0;
+            XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            OPENXR_CHECK(xrAcquireSwapchainImage(colorSwapchainInfo.swapchain, &acquireInfo, &colorImageIndex), "xrAcquireSwapchainImage(color)");
+            OPENXR_CHECK(xrAcquireSwapchainImage(depthSwapchainInfo.swapchain, &acquireInfo, &depthImageIndex), "xrAcquireSwapchainImage(depth)");
+            XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            waitInfo.timeout = XR_INFINITE_DURATION;
+            OPENXR_CHECK(xrWaitSwapchainImage(colorSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(color)");
+            OPENXR_CHECK(xrWaitSwapchainImage(depthSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(depth)");
+            const uint32_t &width = xrViewConfigurationViews[i].recommendedImageRectWidth;
+            const uint32_t &height = xrViewConfigurationViews[i].recommendedImageRectHeight;
+
+            renderLayerInfo.layerProjectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+            renderLayerInfo.layerProjectionViews[i].pose = views[i].pose;
+            renderLayerInfo.layerProjectionViews[i].fov = views[i].fov;
+            renderLayerInfo.layerProjectionViews[i].subImage.swapchain = colorSwapchainInfo.swapchain;
+            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.x = 0;
+            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.y = 0;
+            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.width = static_cast<int32_t>(width);
+            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = static_cast<int32_t>(height);
+            renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
+
+            VkCommandBuffer cmd = commandBuffers[frameIndex];
+            VkCommandBufferBeginInfo beginInfo =
+                {
+                    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+            VK_CHECK(vkResetCommandBuffer(cmd, 0));
+            VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+            VkImageMemoryBarrier2 outputBarriers[] =
+                {
+                    {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                     .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     .srcAccessMask = 0,
+                     .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                     .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                     .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                     .image = colorSwapchainInfo.images[colorImageIndex],
+                     .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}},
+                    {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                     .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                     .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                     .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+                     .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                     .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                     .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                     .image = depthSwapchainInfo.images[depthImageIndex],
+                     .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1}}};
+            VkDependencyInfo barrierDependencyInfo =
+                {
+                    .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                    .imageMemoryBarrierCount = 2,
+                    .pImageMemoryBarriers = outputBarriers};
+            vkCmdPipelineBarrier2(cmd, &barrierDependencyInfo);
+
+            VkRenderingAttachmentInfo colorAttachmentInfo =
+                {
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = colorSwapchainInfo.imageViews[colorImageIndex],
+                    .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .clearValue = {.color = {0.0f, 0.5f, 1.0f, 1.0f}}};
+            VkRenderingAttachmentInfo depthAttachmentInfo =
+                {
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = depthSwapchainInfo.imageViews[depthImageIndex],
+                    .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .clearValue = {.depthStencil = {1.0f, 0}}};
+
+            VkRenderingInfo renderingInfo =
+                {
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+                    .renderArea =
+                        {
+                            .extent = {
+                                .width = width,
+                                .height = height}},
+                    .layerCount = 1,
+                    .colorAttachmentCount = 1,
+                    .pColorAttachments = &colorAttachmentInfo,
+                    .pDepthAttachment = &depthAttachmentInfo};
+            vkCmdBeginRendering(cmd, &renderingInfo);
+            vkCmdEndRendering(cmd);
+
+            VkImageMemoryBarrier2 barrierPresent{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccessMask = 0,
+                .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .image = colorSwapchainInfo.images[colorImageIndex],
+                .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
+            VkDependencyInfo barrierPresentDependencyInfo{
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .imageMemoryBarrierCount = 1,
+                .pImageMemoryBarriers = &barrierPresent};
+            vkCmdPipelineBarrier2(cmd, &barrierPresentDependencyInfo);
+
+            VK_CHECK(vkEndCommandBuffer(cmd));
+
+            VkSubmitInfo submitInfo{
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                .waitSemaphoreCount = 0,
+                .pWaitSemaphores = nullptr,
+                .pWaitDstStageMask = nullptr,
+                .commandBufferCount = 1,
+                .pCommandBuffers = &cmd,
+                .signalSemaphoreCount = 0,
+                .pSignalSemaphores = nullptr};
+            VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
+            VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fences[frameIndex]));
+            if (i + 1 < viewCount)
+            {
+                VK_CHECK(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
+            }
+
+            XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            OPENXR_CHECK(xrReleaseSwapchainImage(colorSwapchainInfo.swapchain, &releaseInfo), "xrReleaseSwapchainImage(color)");
+            OPENXR_CHECK(xrReleaseSwapchainImage(depthSwapchainInfo.swapchain, &releaseInfo), "xrReleaseSwapchainImage(depth)");
+        }
+        renderLayerInfo.layerProjection.space = xrLocalSpace;
+        renderLayerInfo.layerProjection.viewCount = viewCount;
+        renderLayerInfo.layerProjection.views = renderLayerInfo.layerProjectionViews;
+    #endif
+
+    #ifndef USE_OPENXR
     VkCommandBuffer cmd = commandBuffers[frameIndex];
     VkCommandBufferBeginInfo beginInfo =
         {
@@ -1588,8 +2111,9 @@ int GfxRender()
 
     GfxRenderScene(cmd);
 
+    #ifndef USE_OPENXR
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
+    #endif
     vkCmdEndRendering(cmd);
 
     VkImageMemoryBarrier2 barrierPresent{
@@ -1622,9 +2146,10 @@ int GfxRender()
         .pSignalSemaphores = &renderCompleteSemaphores[imageIndex],
     };
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fences[frameIndex]));
+    #endif
 
     frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
-
+    #ifndef USE_OPENXR
     VkPresentInfoKHR presentInfo{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
@@ -1633,6 +2158,15 @@ int GfxRender()
         .pSwapchains = &swapchain,
         .pImageIndices = &imageIndex};
     vkQueuePresentKHR(graphicsQueue, &presentInfo);
+    #else 
+        XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+        frameEndInfo.displayTime = frameState.predictedDisplayTime;
+        frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        frameEndInfo.layerCount = 1;
+        XrCompositionLayerBaseHeader * layer = (XrCompositionLayerBaseHeader *)&renderLayerInfo.layerProjection;
+        frameEndInfo.layers = &layer;
+        OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
+    #endif
     return 0;
 }
 
@@ -1648,10 +2182,11 @@ void GfxPreDestroy()
 void GfxDestroy()
 {
     vkDeviceWaitIdle(device);
+    #ifndef USE_OPENXR
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
+    #endif
 
     for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
     {
