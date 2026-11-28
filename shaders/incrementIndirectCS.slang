@@ -31,7 +31,7 @@ void main(uniform IncrementIndirectPushConstants pushConstants, uint3 threadId: 
                                           pushConstants.renderableData[threadId.x].transformRow2.w,
                                           1.0f);
 
-            float distance = length(renderablePos - pushConstants.g_GlobalData->cameraPos) * 1.25f;
+            float distance = length(renderablePos - pushConstants.g_GlobalData->cameraPos) * 0.1f;
 
             uint index = clamp(uint(floor(distance+1)), 0, numLODs);
             if (distance > 1.0)

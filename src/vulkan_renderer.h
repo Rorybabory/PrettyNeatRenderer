@@ -9,9 +9,11 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 #include "resource.h"
+
+
 // #define DESCRIPTOR_HEAP_EXPERIMENTS
 
-#define USE_OPENXR
+// #define USE_OPENXR
 
 
 struct GfxInstance;
@@ -42,12 +44,16 @@ void GfxCreateIndirectBuffer();
 void GfxCreateComputePipelines();
 void GfxCreateImGui();
 void GfxImguiNewFrame();
+
 #ifdef USE_OPENXR
+struct XrView;
 void GfxCreateOpenXRInstance();
 void GfxCreateOpenXRSession();
 void GfxHandleOpenXREvents();
 void GfxGetViewConfigurationViews();
 void GfxCreateXRSwapchain();
+int GfxRenderXR();
+void GfxSetCameraDataXR(XrView * view, uint32_t index, bool updateFrustum);
 #endif
 void GfxUpdateTextures(Texture *textures, uint32_t count, uint32_t offset);
 
@@ -57,8 +63,16 @@ void GfxUpdateScene(Scene *pScene);
 void GfxSetCameraData(glm::mat4 & cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum);
 
 void GfxSetRenderableData(Scene *pScene);
-void GfxSortRenderables(Scene &scene);
-
+void GfxSortRenderables(Scene * scene
+#ifdef USE_OPENXR
+    , uint32_t viewID = 0
+#endif
+);
+void GfxRenderScene(VkCommandBuffer &cmd
+#ifdef USE_OPENXR
+    , uint32_t viewID = 0
+#endif
+);
 void GfxSetPipeline(Pipeline *_pipeline);
 
 VkCommandBuffer GfxCreateOneTimeCmdBuffer();

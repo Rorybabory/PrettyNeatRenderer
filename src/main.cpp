@@ -37,7 +37,7 @@ bool mFirstMouse = true;
 
 float deltaTime = 0.0f;
 
-const float cameraSpeed = 0.5f;
+const float cameraSpeed = 10.0f;
 const float mouseSensitivity = 0.1f;
 void MouseCallback(GLFWwindow *window, double xpos, double ypos)
 {
@@ -68,15 +68,15 @@ void MouseCallback(GLFWwindow *window, double xpos, double ypos)
 
 void GenerateScene()
 {
-    const int monkeysPerAxis = 96;
-    const float size = 0.015f;
+    const int monkeysPerAxis = 16;
+    const float size = 0.5f;
     for (uint32_t i = 0; i < monkeysPerAxis; ++i)
     {
         for (uint32_t j = 0; j < monkeysPerAxis; ++j)
         {
             for (uint32_t k = 0; k < monkeysPerAxis; ++k)
             {
-                float divisor = (float)monkeysPerAxis / 4.0f;
+                float divisor = (float)monkeysPerAxis / 32.0f;
                 MeshID mesh = mCubeMesh;
                 uint16_t texture = 0;
                 uint32_t checkerboard = (i + j + k) % 3;
@@ -245,7 +245,9 @@ int main()
         #endif
         GfxWaitForFrame();
         GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f, updateFrustum);
-        GfxSortRenderables(scene);
+        #ifndef USE_OPENXR
+        GfxSortRenderables(&scene);
+        #endif
         GfxRender();
     }
     GfxPreDestroy();

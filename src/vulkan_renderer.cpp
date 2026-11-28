@@ -31,6 +31,7 @@
 #include <spdlog/spdlog.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include "vkutils.h"
 
 #include "asset_loader.h"
@@ -201,6 +202,8 @@ PipelineID pipelineIndicesIndirectCS;
 
 BufferID globalDataBuffer;
 
+Scene * pCurrentScene;
+
 #ifdef USE_OPENXR
     XrInstance xrInstance = XR_NULL_HANDLE;
     XrDebugUtilsMessengerEXT xrDebugUtilsMessenger = XR_NULL_HANDLE;
@@ -236,6 +239,9 @@ BufferID globalDataBuffer;
     bool xrApplicationRunning = false;
     std::vector<std::string> xrVulkanInstanceExtensions;
     std::vector<std::string> xrVulkanDeviceExtensions;
+
+
+    BufferID globalDataXRBuffer[2];
 
     static void ParseSpaceDelimitedExtensions(const char *extStr, std::vector<std::string> &out)
     {
@@ -324,35 +330,51 @@ void GfxCreateInstance()
             .apiVersion = VK_API_VERSION_1_3};
 
     uint32_t instanceExtensionCountGlfw = 0;
+    uint32_t instanceExtensionCount = 0;
     const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&instanceExtensionCountGlfw);
-    std::vector<std::string> enabledExtStorage;
-    auto addUniqueExt = [&](const char *name) {
-        if (name && std::find(enabledExtStorage.begin(), enabledExtStorage.end(), name) == enabledExtStorage.end())
-            enabledExtStorage.emplace_back(name);
-    };
+    instanceExtensionCount = instanceExtensionCountGlfw + 1;
+#ifdef USE_OPENXR
+    uint32_t maxExtensionCount = instanceExtensionCount + (uint32_t)xrVulkanInstanceExtensions.size();
+#else
+    uint32_t maxExtensionCount = instanceExtensionCount;
+#endif
+    char **instanceExtension = (char **)malloc(sizeof(char *) * maxExtensionCount);
+
+    for (uint32_t i = 0; i < maxExtensionCount; ++i)
+    {
+        instanceExtension[i] = (char *)malloc(sizeof(char) * 128);
+    }
+
     for (uint32_t i = 0; i < instanceExtensionCountGlfw; ++i)
     {
-        addUniqueExt(glfwExtensions[i]);
+        strcpy(instanceExtension[i], glfwExtensions[i]);
     }
-    addUniqueExt(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    strcpy(instanceExtension[instanceExtensionCountGlfw], VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
 #ifdef USE_OPENXR
-    for (const auto &ext : xrVulkanInstanceExtensions)
+    for (uint32_t i = 0; i < (uint32_t)xrVulkanInstanceExtensions.size(); ++i)
     {
-        addUniqueExt(ext.c_str());
+        bool alreadyAdded = false;
+        for (uint32_t j = 0; j < instanceExtensionCount; ++j)
+        {
+            if (strcmp(instanceExtension[j], xrVulkanInstanceExtensions[i].c_str()) == 0)
+            {
+                alreadyAdded = true;
+                break;
+            }
+        }
+        if (!alreadyAdded)
+        {
+            strcpy(instanceExtension[instanceExtensionCount++], xrVulkanInstanceExtensions[i].c_str());
+        }
     }
 #endif
-    std::vector<const char *> instanceExtensionPtrs;
-    instanceExtensionPtrs.reserve(enabledExtStorage.size());
-    for (const auto &ext : enabledExtStorage)
-    {
-        instanceExtensionPtrs.push_back(ext.c_str());
-    }
 
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(instanceExtensionPtrs.size());
-    createInfo.ppEnabledExtensionNames = instanceExtensionPtrs.data();
+    createInfo.enabledExtensionCount = instanceExtensionCount;
+    createInfo.ppEnabledExtensionNames = (const char *const *)instanceExtension;
 
     if (enableValidationLayers)
     {
@@ -372,7 +394,11 @@ void GfxCreateInstance()
     VK_CHECK(vkCreateInstance(&createInfo, 0, &instance));
     spdlog::info("Vulkan Instance Created");
 
-
+    for (uint32_t i = 0; i < maxExtensionCount; ++i)
+    {
+        free(instanceExtension[i]);
+    }
+    free(instanceExtension);
     volkLoadInstance(instance);
 }
 #ifdef USE_OPENXR
@@ -755,6 +781,330 @@ void GfxHandleOpenXREvents()
         }
     }
 }
+int GfxRenderXR()
+{
+    if (!xrSessionRunning) return 0;
+    XrFrameState frameState{XR_TYPE_FRAME_STATE};
+    XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
+    OPENXR_CHECK(xrWaitFrame(xrSession, &frameWaitInfo, &frameState), "xrWaitFrame");
+    XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+    OPENXR_CHECK(xrBeginFrame(xrSession, &frameBeginInfo), "xrBeginFrame");
+    bool rendered = false;
+    RenderLayerInfo renderLayerInfo;
+    renderLayerInfo.predictedDisplayTime = frameState.predictedDisplayTime;
+    bool sessionActive = (xrSessionState == XR_SESSION_STATE_SYNCHRONIZED || xrSessionState == XR_SESSION_STATE_VISIBLE || xrSessionState == XR_SESSION_STATE_FOCUSED);
+    if (!(sessionActive && frameState.shouldRender)) {
+        XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+        frameEndInfo.displayTime = frameState.predictedDisplayTime;
+        frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        frameEndInfo.layerCount = 0;
+        frameEndInfo.layers = nullptr;
+        OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
+        return 0;
+    }
+    std::vector<XrView> views(xrViewConfigurationViewCount, {XR_TYPE_VIEW});
+    XrViewState viewState{XR_TYPE_VIEW_STATE};
+    XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
+    viewLocateInfo.viewConfigurationType = xrViewConfiguration;
+    viewLocateInfo.displayTime = renderLayerInfo.predictedDisplayTime;
+    viewLocateInfo.space = xrLocalSpace;
+    uint32_t viewCount = 0;
+    OPENXR_CHECK(xrLocateViews(xrSession, &viewLocateInfo, &viewState, static_cast<uint32_t>(views.size()), &viewCount, views.data()), "xrLocateViews");
+
+
+    std::vector<XrCompositionLayerProjectionView> projectionViews(viewCount, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
+    renderLayerInfo.layerProjectionViews = projectionViews.data();
+    std::vector<uint32_t> colorImageIndices(viewCount, 0);
+    std::vector<uint32_t> depthImageIndices(viewCount, 0);
+
+    extern Mesh meshRegistry[MAX_MESHES];
+    memcpy(GetBufferMappedAddress(indirectDataBuffer, frameIndex), &meshRegistry, GetNumMeshes() * sizeof(Mesh));
+
+    VkCommandBuffer cmd = commandBuffers[frameIndex];
+    VkCommandBufferBeginInfo beginInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    VK_CHECK(vkResetCommandBuffer(cmd, 0));
+    VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+    VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
+    VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
+    VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
+    uint32_t numMeshes = GetNumMeshes();
+
+    for (uint32_t i = 0; i < viewCount; i++) 
+    {
+        XrSwapchainInfo &colorSwapchainInfo = xrColorSwapchainInfos[i];
+        XrSwapchainInfo &depthSwapchainInfo = xrDepthSwapchainInfos[i];
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        OPENXR_CHECK(xrAcquireSwapchainImage(colorSwapchainInfo.swapchain, &acquireInfo, &colorImageIndices[i]), "xrAcquireSwapchainImage(color)");
+        OPENXR_CHECK(xrAcquireSwapchainImage(depthSwapchainInfo.swapchain, &acquireInfo, &depthImageIndices[i]), "xrAcquireSwapchainImage(depth)");
+        XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+        waitInfo.timeout = XR_INFINITE_DURATION;
+        OPENXR_CHECK(xrWaitSwapchainImage(colorSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(color)");
+        OPENXR_CHECK(xrWaitSwapchainImage(depthSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(depth)");
+        const uint32_t &width = xrViewConfigurationViews[i].recommendedImageRectWidth;
+        const uint32_t &height = xrViewConfigurationViews[i].recommendedImageRectHeight;
+
+        renderLayerInfo.layerProjectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+        renderLayerInfo.layerProjectionViews[i].pose = views[i].pose;
+        renderLayerInfo.layerProjectionViews[i].fov = views[i].fov;
+        renderLayerInfo.layerProjectionViews[i].subImage.swapchain = colorSwapchainInfo.swapchain;
+        renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.x = 0;
+        renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.y = 0;
+        renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.width = static_cast<int32_t>(width);
+        renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = static_cast<int32_t>(height);
+        renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
+
+        GfxSetCameraDataXR(&views[i], i, true);
+
+        if (i > 0)
+        {
+            VkMemoryBarrier2 prevDrawToCompute = {
+                .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT};
+            VkDependencyInfo prevDep = {
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .memoryBarrierCount = 1,
+                .pMemoryBarriers = &prevDrawToCompute};
+            vkCmdPipelineBarrier2(cmd, &prevDep);
+        }
+
+        // Record GPU culling/sorting directly into cmd (no CPU stall or 56MB memcpy)
+        vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectDataAddress);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
+        vkCmdDispatch(cmd, numMeshes, 1, 1);
+
+        VkMemoryBarrier2 computeBarrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT};
+        VkDependencyInfo computeDep = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &computeBarrier};
+
+        vkCmdPipelineBarrier2(cmd, &computeDep);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
+        IncrementIndirectPushConstants incrementIndirectPushConstants =
+        {
+            .globalDataAddress = GetBufferDeviceAddress(globalDataXRBuffer[i], frameIndex),
+            .indirectAddress = indirectDataAddress,
+            .renderableDataAddress = renderableDataAddress,
+            .numRenderables = pCurrentScene->numRenderables
+        };
+        vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
+        vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
+
+        vkCmdPipelineBarrier2(cmd, &computeDep);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
+        MeshOffsetsPushConstants meshOffsetsPushConstants =
+        {
+            .indirectAddress = indirectDataAddress,
+            .numMeshes = numMeshes
+        };
+        vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(MeshOffsetsPushConstants), &meshOffsetsPushConstants);
+        vkCmdDispatch(cmd, 1, 1, 1);
+
+        vkCmdPipelineBarrier2(cmd, &computeDep);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
+        CalculateIndicesPushConstants calculateIndicesPushConstants =
+        {
+            .indirectAddress = indirectDataAddress,
+            .renderableDataAddress = renderableDataAddress,
+            .renderableIndexAddress = renderableIndexAddress,
+            .numRenderables = pCurrentScene->numRenderables
+        };
+        vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
+        vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
+
+        VkMemoryBarrier2 computeToDrawBarrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT};
+        VkImageMemoryBarrier2 outputBarriers[] =
+            {
+                {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                 .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                 .srcAccessMask = 0,
+                 .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                 .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                 .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                 .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                 .image = colorSwapchainInfo.images[colorImageIndices[i]],
+                 .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}},
+                {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                 .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                 .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                 .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+                 .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                 .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                 .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                 .image = depthSwapchainInfo.images[depthImageIndices[i]],
+                 .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1}}};
+        VkDependencyInfo barrierDependencyInfo =
+            {
+                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .memoryBarrierCount = 1,
+                .pMemoryBarriers = &computeToDrawBarrier,
+                .imageMemoryBarrierCount = 2,
+                .pImageMemoryBarriers = outputBarriers};
+        vkCmdPipelineBarrier2(cmd, &barrierDependencyInfo);
+        VkRenderingAttachmentInfo colorAttachmentInfo =
+            {
+                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .imageView = colorSwapchainInfo.imageViews[colorImageIndices[i]],
+                .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                .clearValue = {.color = {0.0f, 0.5f, 1.0f, 1.0f}}};
+        VkRenderingAttachmentInfo depthAttachmentInfo =
+            {
+                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .imageView = depthSwapchainInfo.imageViews[depthImageIndices[i]],
+                .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+                .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                .clearValue = {
+                    .depthStencil = {1.0f, 0}
+                }};
+        VkRenderingInfo renderingInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .renderArea =
+            {
+                .extent = {
+                    .width = width,
+                    .height = height
+                }
+            },
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo
+        };
+        vkCmdBeginRendering(cmd, &renderingInfo);
+        
+        GfxRenderScene(cmd, i);
+
+        vkCmdEndRendering(cmd);
+        VkImageMemoryBarrier2 barrierPresent{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccessMask = 0,
+            .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .image = colorSwapchainInfo.images[colorImageIndices[i]],
+            .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
+        VkDependencyInfo barrierPresentDependencyInfo{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &barrierPresent};
+        vkCmdPipelineBarrier2(cmd, &barrierPresentDependencyInfo);
+    }
+
+    VK_CHECK(vkEndCommandBuffer(cmd));
+    VkSubmitInfo submitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = nullptr,
+        .pWaitDstStageMask = nullptr,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = nullptr};
+    VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
+    VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fences[frameIndex]));
+
+    for (uint32_t i = 0; i < viewCount; i++)
+    {
+        XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        OPENXR_CHECK(xrReleaseSwapchainImage(xrColorSwapchainInfos[i].swapchain, &releaseInfo), "xrReleaseSwapchainImage(color)");
+        OPENXR_CHECK(xrReleaseSwapchainImage(xrDepthSwapchainInfos[i].swapchain, &releaseInfo), "xrReleaseSwapchainImage(depth)");
+    }
+    renderLayerInfo.layerProjection.space = xrLocalSpace;
+    renderLayerInfo.layerProjection.viewCount = viewCount;
+    renderLayerInfo.layerProjection.views = renderLayerInfo.layerProjectionViews;
+
+    frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
+
+    XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+    frameEndInfo.displayTime = frameState.predictedDisplayTime;
+    frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    frameEndInfo.layerCount = 1;
+    XrCompositionLayerBaseHeader * layer = (XrCompositionLayerBaseHeader *)&renderLayerInfo.layerProjection;
+    frameEndInfo.layers = &layer;
+    OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
+
+    return 0;
+}
+void GfxSetCameraDataXR(XrView * view, uint32_t index, bool updateFrustum)
+{
+    const float nearPlane = 0.01f;
+    const float farPlane = 128.0f;
+    const XrFovf fov = view->fov;
+    const float tanLeft  = std::tan(fov.angleLeft);
+    const float tanRight = std::tan(fov.angleRight);
+    const float tanDown  = std::tan(fov.angleDown);
+    const float tanUp    = std::tan(fov.angleUp);
+
+    const float tanWidth  = tanRight - tanLeft;
+    const float tanHeight = tanDown - tanUp; 
+
+    glm::mat4 proj(0.0f);
+    proj[0][0] = 2.0f / tanWidth;
+    proj[1][1] = 2.0f / tanHeight;
+    proj[2][0] = (tanRight + tanLeft) / tanWidth;
+    proj[2][1] = (tanUp + tanDown) / tanHeight;
+    proj[2][2] = -farPlane / (farPlane - nearPlane);
+    proj[2][3] = -1.0f;
+    proj[3][2] = -(farPlane * nearPlane) / (farPlane - nearPlane);
+    XrPosef pose = view->pose;
+    glm::quat orientation(
+        pose.orientation.w,
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z
+    );
+    glm::vec3 position(
+        pose.position.x,
+        pose.position.y,
+        pose.position.z
+    );
+    glm::mat4 cameraToWorld = glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(orientation);
+
+    GlobalData globalData = {};
+    globalData.proj = proj;
+    globalData.view = glm::inverse(cameraToWorld);
+    globalData.lightPos = glm::vec4(0.0f, 10.0f, 0.0f, 1.0f);
+    globalData.cameraPos = glm::vec4(position.x, position.y, position.z, 1.0f);
+
+    // Calculate frustum planes
+    glm::mat4 vpt = glm::transpose(globalData.proj * globalData.view);
+    if (updateFrustum)
+    {
+        frustumPlanes[0] = (vpt[3] + vpt[0]); // left
+        frustumPlanes[1] = (vpt[3] - vpt[0]); // right
+        frustumPlanes[2] = (vpt[3] + vpt[1]); // bottom
+        frustumPlanes[3] = (vpt[3] - vpt[1]); // top
+        frustumPlanes[4] = vpt[2];           // near (Vulkan [0, 1] depth)
+        frustumPlanes[5] = (vpt[3] - vpt[2]); // far
+    }
+
+    memcpy(globalData.frustumPlanes, frustumPlanes, sizeof(glm::vec4) * 6);
+
+    memcpy(GetBufferMappedAddress(globalDataXRBuffer[index], frameIndex), &globalData, sizeof(GlobalData));
+}
 #endif
 
 glm::mat4 GfxGenerateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 rotationEular)
@@ -800,14 +1150,19 @@ void GfxSceneAddRenderable(Scene &scene, RenderableCreateInfo *createInfo)
 
 extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
-void GfxSortRenderables(Scene &scene)
+void GfxSortRenderables(Scene * scene
+#ifdef USE_OPENXR
+    , uint32_t viewID
+#endif
+)
 {
     VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
     VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
     VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
     
+    extern Mesh meshRegistry[MAX_MESHES];
     memcpy(GetBufferMappedAddress(indirectDataBuffer, frameIndex), &meshRegistry, GetNumMeshes() * sizeof(Mesh));
-    memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), scene.pRenderableData, scene.numRenderables * sizeof(RenderableData));
+    memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), scene->pRenderableData, scene->numRenderables * sizeof(RenderableData));
     VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
     VkCommandBufferBeginInfo beginInfo =
         {
@@ -834,15 +1189,22 @@ void GfxSortRenderables(Scene &scene)
     // Increment indirect data based on number of renderables with each mesh
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
+
+    VkDeviceAddress globalAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex);
+
+    #ifdef USE_OPENXR
+        globalAddress = GetBufferDeviceAddress(globalDataXRBuffer[viewID], frameIndex);
+    #endif
+
     IncrementIndirectPushConstants incrementIndirectPushConstants =
     {
-        .globalDataAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex),
+        .globalDataAddress = globalAddress,
         .indirectAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex),
         .renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex),
-        .numRenderables = scene.numRenderables
+        .numRenderables = scene->numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
-    vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, (scene->numRenderables + 63) / 64, 1, 1);
 
     // Assign Mesh Offsets for each mesh
     uint32_t numMeshes = GetNumMeshes();
@@ -866,10 +1228,10 @@ void GfxSortRenderables(Scene &scene)
         .indirectAddress = indirectDataAddress,
         .renderableDataAddress = renderableDataAddress,
         .renderableIndexAddress = renderableIndexAddress,
-        .numRenderables = scene.numRenderables
+        .numRenderables = scene->numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
-    vkCmdDispatch(cmd, (scene.numRenderables + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, (scene->numRenderables + 63) / 64, 1, 1);
     vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     VK_CHECK(vkEndCommandBuffer(cmd));
     VkQueue queue = GfxGetQueue();
@@ -1273,6 +1635,13 @@ void GfxCreateShaderData()
         .flags = BUFFER_FLAG_PER_FRAME | BUFFER_FLAG_MAPPED
     };
     globalDataBuffer = CreateBuffer(&bufferInfo);
+
+    #ifdef USE_OPENXR
+        for (uint32_t i = 0; i < 2; ++i)
+        {
+            globalDataXRBuffer[i] = CreateBuffer(&bufferInfo);
+        }
+    #endif
 }
 
 void GfxCreateSyncObjects()
@@ -1643,6 +2012,7 @@ void GfxCreateScene(Scene *pScene)
 void GfxUpdateScene(Scene *pScene)
 {
     renderableCount = pScene->numRenderables;
+    pCurrentScene = pScene;
 }
 
 void GfxSetCameraData(glm::mat4 &cameraView, glm::vec3 cameraPos, float fov, float nearPlane, float farPlane, bool updateFrustum)
@@ -1661,7 +2031,7 @@ void GfxSetCameraData(glm::mat4 &cameraView, glm::vec3 cameraPos, float fov, flo
         frustumPlanes[1] = (vpt[3] - vpt[0]); // right
         frustumPlanes[2] = (vpt[3] + vpt[1]); // bottom
         frustumPlanes[3] = (vpt[3] - vpt[1]); // top
-        frustumPlanes[4] = (vpt[3] + vpt[2]); // near
+        frustumPlanes[4] = vpt[2];           // near (Vulkan [0, 1] depth)
         frustumPlanes[5] = (vpt[3] - vpt[2]); // far
     }
 
@@ -1822,18 +2192,33 @@ void GfxBindDescriptorHeaps()
 }
 #endif
 
-void GfxRenderScene(VkCommandBuffer &cmd)
+void GfxRenderScene(VkCommandBuffer &cmd
+#ifdef USE_OPENXR
+    , uint32_t viewID
+#endif
+
+)
 {
+#ifdef USE_OPENXR
+    GfxSetViewportAndScissors(cmd, xrViewConfigurationViews[viewID].recommendedImageRectWidth, xrViewConfigurationViews[viewID].recommendedImageRectHeight);
+#else
     GfxSetViewportAndScissors(cmd, windowWidth, windowHeight);
+#endif
 
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
     GfxBindDescriptorHeaps();
 #else
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout, 0, 1, &descriptorSetTex, 0, nullptr);
 
+    VkDeviceAddress globalDataAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex);
+
+    #ifdef USE_OPENXR
+        globalDataAddress = GetBufferDeviceAddress(globalDataXRBuffer[viewID], frameIndex);
+    #endif
+
     MatGenericPushConstants matPushConstants =
     {
-        .globalDataAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex),
+        .globalDataAddress = globalDataAddress,
         .renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex),
         .renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex)
     };
@@ -1866,180 +2251,9 @@ void GfxWaitForFrame()
 int GfxRender()
 {
     #ifdef USE_OPENXR
-        if (!xrSessionRunning) return 0;
-        XrFrameState frameState{XR_TYPE_FRAME_STATE};
-        XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
-        OPENXR_CHECK(xrWaitFrame(xrSession, &frameWaitInfo, &frameState), "xrWaitFrame");
-
-        XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
-        OPENXR_CHECK(xrBeginFrame(xrSession, &frameBeginInfo), "xrBeginFrame");
-        bool rendered = false;
-        RenderLayerInfo renderLayerInfo;
-        renderLayerInfo.predictedDisplayTime = frameState.predictedDisplayTime;
-
-        bool sessionActive = (xrSessionState == XR_SESSION_STATE_SYNCHRONIZED || xrSessionState == XR_SESSION_STATE_VISIBLE || xrSessionState == XR_SESSION_STATE_FOCUSED);
-        if (!(sessionActive && frameState.shouldRender)) {
-            XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
-            frameEndInfo.displayTime = frameState.predictedDisplayTime;
-            frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-            frameEndInfo.layerCount = 0;
-            frameEndInfo.layers = nullptr;
-            OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
-            return 0;
-        }
-
-        std::vector<XrView> views(xrViewConfigurationViewCount, {XR_TYPE_VIEW});
-        XrViewState viewState{XR_TYPE_VIEW_STATE};
-        XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
-        viewLocateInfo.viewConfigurationType = xrViewConfiguration;
-        viewLocateInfo.displayTime = renderLayerInfo.predictedDisplayTime;
-        viewLocateInfo.space = xrLocalSpace;
-        uint32_t viewCount = 0;
-        OPENXR_CHECK(xrLocateViews(xrSession, &viewLocateInfo, &viewState, static_cast<uint32_t>(views.size()), &viewCount, views.data()), "xrLocateViews");
-    #else
-        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
+        return GfxRenderXR();
     #endif
-
-    #ifdef USE_OPENXR
-        std::vector<XrCompositionLayerProjectionView> projectionViews(viewCount, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
-        renderLayerInfo.layerProjectionViews = projectionViews.data();
-        for (uint32_t i = 0; i < viewCount; i++) 
-        {
-            XrSwapchainInfo &colorSwapchainInfo = xrColorSwapchainInfos[i];
-            XrSwapchainInfo &depthSwapchainInfo = xrDepthSwapchainInfos[i];
-            uint32_t colorImageIndex = 0;
-            uint32_t depthImageIndex = 0;
-            XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-            OPENXR_CHECK(xrAcquireSwapchainImage(colorSwapchainInfo.swapchain, &acquireInfo, &colorImageIndex), "xrAcquireSwapchainImage(color)");
-            OPENXR_CHECK(xrAcquireSwapchainImage(depthSwapchainInfo.swapchain, &acquireInfo, &depthImageIndex), "xrAcquireSwapchainImage(depth)");
-            XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-            waitInfo.timeout = XR_INFINITE_DURATION;
-            OPENXR_CHECK(xrWaitSwapchainImage(colorSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(color)");
-            OPENXR_CHECK(xrWaitSwapchainImage(depthSwapchainInfo.swapchain, &waitInfo), "xrWaitSwapchainImage(depth)");
-            const uint32_t &width = xrViewConfigurationViews[i].recommendedImageRectWidth;
-            const uint32_t &height = xrViewConfigurationViews[i].recommendedImageRectHeight;
-
-            renderLayerInfo.layerProjectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-            renderLayerInfo.layerProjectionViews[i].pose = views[i].pose;
-            renderLayerInfo.layerProjectionViews[i].fov = views[i].fov;
-            renderLayerInfo.layerProjectionViews[i].subImage.swapchain = colorSwapchainInfo.swapchain;
-            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.x = 0;
-            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.y = 0;
-            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.width = static_cast<int32_t>(width);
-            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = static_cast<int32_t>(height);
-            renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
-
-            VkCommandBuffer cmd = commandBuffers[frameIndex];
-            VkCommandBufferBeginInfo beginInfo =
-                {
-                    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-            VK_CHECK(vkResetCommandBuffer(cmd, 0));
-            VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
-
-            VkImageMemoryBarrier2 outputBarriers[] =
-                {
-                    {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                     .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                     .srcAccessMask = 0,
-                     .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                     .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                     .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                     .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                     .image = colorSwapchainInfo.images[colorImageIndex],
-                     .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}},
-                    {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                     .srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                     .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                     .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-                     .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                     .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                     .newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                     .image = depthSwapchainInfo.images[depthImageIndex],
-                     .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1}}};
-            VkDependencyInfo barrierDependencyInfo =
-                {
-                    .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                    .imageMemoryBarrierCount = 2,
-                    .pImageMemoryBarriers = outputBarriers};
-            vkCmdPipelineBarrier2(cmd, &barrierDependencyInfo);
-
-            VkRenderingAttachmentInfo colorAttachmentInfo =
-                {
-                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                    .imageView = colorSwapchainInfo.imageViews[colorImageIndex],
-                    .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                    .clearValue = {.color = {0.0f, 0.5f, 1.0f, 1.0f}}};
-            VkRenderingAttachmentInfo depthAttachmentInfo =
-                {
-                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                    .imageView = depthSwapchainInfo.imageViews[depthImageIndex],
-                    .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                    .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .clearValue = {.depthStencil = {1.0f, 0}}};
-
-            VkRenderingInfo renderingInfo =
-                {
-                    .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-                    .renderArea =
-                        {
-                            .extent = {
-                                .width = width,
-                                .height = height}},
-                    .layerCount = 1,
-                    .colorAttachmentCount = 1,
-                    .pColorAttachments = &colorAttachmentInfo,
-                    .pDepthAttachment = &depthAttachmentInfo};
-            vkCmdBeginRendering(cmd, &renderingInfo);
-            vkCmdEndRendering(cmd);
-
-            VkImageMemoryBarrier2 barrierPresent{
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .dstAccessMask = 0,
-                .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                .image = colorSwapchainInfo.images[colorImageIndex],
-                .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
-            VkDependencyInfo barrierPresentDependencyInfo{
-                .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                .imageMemoryBarrierCount = 1,
-                .pImageMemoryBarriers = &barrierPresent};
-            vkCmdPipelineBarrier2(cmd, &barrierPresentDependencyInfo);
-
-            VK_CHECK(vkEndCommandBuffer(cmd));
-
-            VkSubmitInfo submitInfo{
-                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                .waitSemaphoreCount = 0,
-                .pWaitSemaphores = nullptr,
-                .pWaitDstStageMask = nullptr,
-                .commandBufferCount = 1,
-                .pCommandBuffers = &cmd,
-                .signalSemaphoreCount = 0,
-                .pSignalSemaphores = nullptr};
-            VK_CHECK(vkResetFences(device, 1, &fences[frameIndex]));
-            VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fences[frameIndex]));
-            if (i + 1 < viewCount)
-            {
-                VK_CHECK(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
-            }
-
-            XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-            OPENXR_CHECK(xrReleaseSwapchainImage(colorSwapchainInfo.swapchain, &releaseInfo), "xrReleaseSwapchainImage(color)");
-            OPENXR_CHECK(xrReleaseSwapchainImage(depthSwapchainInfo.swapchain, &releaseInfo), "xrReleaseSwapchainImage(depth)");
-        }
-        renderLayerInfo.layerProjection.space = xrLocalSpace;
-        renderLayerInfo.layerProjection.viewCount = viewCount;
-        renderLayerInfo.layerProjection.views = renderLayerInfo.layerProjectionViews;
-    #endif
-
-    #ifndef USE_OPENXR
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
     VkCommandBuffer cmd = commandBuffers[frameIndex];
     VkCommandBufferBeginInfo beginInfo =
         {
@@ -2111,9 +2325,7 @@ int GfxRender()
 
     GfxRenderScene(cmd);
 
-    #ifndef USE_OPENXR
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-    #endif
     vkCmdEndRendering(cmd);
 
     VkImageMemoryBarrier2 barrierPresent{
@@ -2146,10 +2358,9 @@ int GfxRender()
         .pSignalSemaphores = &renderCompleteSemaphores[imageIndex],
     };
     VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fences[frameIndex]));
-    #endif
 
     frameIndex = (frameIndex + 1) % FRAMES_IN_FLIGHT;
-    #ifndef USE_OPENXR
+
     VkPresentInfoKHR presentInfo{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
@@ -2158,15 +2369,6 @@ int GfxRender()
         .pSwapchains = &swapchain,
         .pImageIndices = &imageIndex};
     vkQueuePresentKHR(graphicsQueue, &presentInfo);
-    #else 
-        XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
-        frameEndInfo.displayTime = frameState.predictedDisplayTime;
-        frameEndInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-        frameEndInfo.layerCount = 1;
-        XrCompositionLayerBaseHeader * layer = (XrCompositionLayerBaseHeader *)&renderLayerInfo.layerProjection;
-        frameEndInfo.layers = &layer;
-        OPENXR_CHECK(xrEndFrame(xrSession, &frameEndInfo), "xrEndFrame");
-    #endif
     return 0;
 }
 
