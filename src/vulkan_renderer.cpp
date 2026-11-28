@@ -106,6 +106,9 @@ Pipeline *pipelineLayout = NULL;
 uint32_t frameIndex = 0;
 uint32_t imageIndex = 0;
 
+// Render Graphs
+RGCompiledRenderGraph indirectRenderGraph;
+
 struct PushConstants
 {
 #ifdef DESCRIPTOR_HEAP_EXPERIMENTS
@@ -240,6 +243,7 @@ Scene * pCurrentScene;
     std::vector<std::string> xrVulkanInstanceExtensions;
     std::vector<std::string> xrVulkanDeviceExtensions;
 
+    uint32_t xrViewID = 0;
 
     BufferID globalDataXRBuffer[2];
 
@@ -828,13 +832,9 @@ int GfxRenderXR()
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
 
-    VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
-    VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
-    VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
-    uint32_t numMeshes = GetNumMeshes();
-
     for (uint32_t i = 0; i < viewCount; i++) 
     {
+        xrViewID = i;
         XrSwapchainInfo &colorSwapchainInfo = xrColorSwapchainInfos[i];
         XrSwapchainInfo &depthSwapchainInfo = xrDepthSwapchainInfos[i];
         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -874,62 +874,8 @@ int GfxRenderXR()
             vkCmdPipelineBarrier2(cmd, &prevDep);
         }
 
-        // Record GPU culling/sorting directly into cmd (no CPU stall or 56MB memcpy)
-        vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectDataAddress);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
-        vkCmdDispatch(cmd, numMeshes, 1, 1);
+        GfxExecuteIndirectRenderGraph(cmd);
 
-        VkMemoryBarrier2 computeBarrier = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT};
-        VkDependencyInfo computeDep = {
-            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-            .memoryBarrierCount = 1,
-            .pMemoryBarriers = &computeBarrier};
-
-        vkCmdPipelineBarrier2(cmd, &computeDep);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
-        IncrementIndirectPushConstants incrementIndirectPushConstants =
-        {
-            .globalDataAddress = GetBufferDeviceAddress(globalDataXRBuffer[i], frameIndex),
-            .indirectAddress = indirectDataAddress,
-            .renderableDataAddress = renderableDataAddress,
-            .numRenderables = pCurrentScene->numRenderables
-        };
-        vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
-        vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
-
-        vkCmdPipelineBarrier2(cmd, &computeDep);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
-        MeshOffsetsPushConstants meshOffsetsPushConstants =
-        {
-            .indirectAddress = indirectDataAddress,
-            .numMeshes = numMeshes
-        };
-        vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(MeshOffsetsPushConstants), &meshOffsetsPushConstants);
-        vkCmdDispatch(cmd, 1, 1, 1);
-
-        vkCmdPipelineBarrier2(cmd, &computeDep);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
-        CalculateIndicesPushConstants calculateIndicesPushConstants =
-        {
-            .indirectAddress = indirectDataAddress,
-            .renderableDataAddress = renderableDataAddress,
-            .renderableIndexAddress = renderableIndexAddress,
-            .numRenderables = pCurrentScene->numRenderables
-        };
-        vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
-        vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
-
-        VkMemoryBarrier2 computeToDrawBarrier = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT};
         VkImageMemoryBarrier2 outputBarriers[] =
             {
                 {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -953,8 +899,6 @@ int GfxRenderXR()
         VkDependencyInfo barrierDependencyInfo =
             {
                 .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                .memoryBarrierCount = 1,
-                .pMemoryBarriers = &computeToDrawBarrier,
                 .imageMemoryBarrierCount = 2,
                 .pImageMemoryBarriers = outputBarriers};
         vkCmdPipelineBarrier2(cmd, &barrierDependencyInfo);
@@ -1086,7 +1030,6 @@ void GfxSetCameraDataXR(XrView * view, uint32_t index, bool updateFrustum)
     GlobalData globalData = {};
     globalData.proj = proj;
     globalData.view = glm::inverse(cameraToWorld);
-    globalData.lightPos = glm::vec4(0.0f, 10.0f, 0.0f, 1.0f);
     globalData.cameraPos = glm::vec4(position.x, position.y, position.z, 1.0f);
 
     // Calculate frustum planes
@@ -1150,50 +1093,23 @@ void GfxSceneAddRenderable(Scene &scene, RenderableCreateInfo *createInfo)
 
 extern Mesh meshRegistry[MAX_MESHES];
 extern uint32_t meshRegistryCount;
-void GfxSortRenderables(Scene * scene
-#ifdef USE_OPENXR
-    , uint32_t viewID
-#endif
-)
+
+void GfxRenderPassClearIndirect(VkCommandBuffer cmd, RGRenderPass *pRenderPass)
 {
     VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
-    VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
-    VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
-    
-    extern Mesh meshRegistry[MAX_MESHES];
-    memcpy(GetBufferMappedAddress(indirectDataBuffer, frameIndex), &meshRegistry, GetNumMeshes() * sizeof(Mesh));
-    memcpy(GetBufferMappedAddress(renderableDataBuffer, frameIndex), scene->pRenderableData, scene->numRenderables * sizeof(RenderableData));
-    VkCommandBuffer cmd = GfxCreateOneTimeCmdBuffer();
-    VkCommandBufferBeginInfo beginInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
-
-
-    // Clear Specific values in indirect buffer
     vkCmdPushConstants(cmd, GetPipeline(pipelineClearIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VkDeviceAddress), &indirectDataAddress);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineClearIndirectCS)->pipeline);
     vkCmdDispatch(cmd, GetNumMeshes(), 1, 1);
-    VkMemoryBarrier2 barrier = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR,
-        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT_KHR | VK_ACCESS_2_MEMORY_READ_BIT_KHR};
-    VkDependencyInfo dependencyInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .memoryBarrierCount = 1,
-        .pMemoryBarriers = &barrier};
+}
 
-    // Increment indirect data based on number of renderables with each mesh
-    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+void GfxRenderPassIncrementIndirect(VkCommandBuffer cmd, RGRenderPass *pRenderPass)
+{
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIncrementIndirectCS)->pipeline);
 
     VkDeviceAddress globalAddress = GetBufferDeviceAddress(globalDataBuffer, frameIndex);
 
     #ifdef USE_OPENXR
-        globalAddress = GetBufferDeviceAddress(globalDataXRBuffer[viewID], frameIndex);
+        globalAddress = GetBufferDeviceAddress(globalDataXRBuffer[xrViewID], frameIndex);
     #endif
 
     IncrementIndirectPushConstants incrementIndirectPushConstants =
@@ -1201,54 +1117,83 @@ void GfxSortRenderables(Scene * scene
         .globalDataAddress = globalAddress,
         .indirectAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex),
         .renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex),
-        .numRenderables = scene->numRenderables
+        .numRenderables = pCurrentScene->numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIncrementIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(IncrementIndirectPushConstants), &incrementIndirectPushConstants);
-    vkCmdDispatch(cmd, (scene->numRenderables + 63) / 64, 1, 1);
+    vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
 
-    // Assign Mesh Offsets for each mesh
+}
+void GfxRenderPassMeshOffsets(VkCommandBuffer cmd, RGRenderPass *pRenderPass)
+{
+    VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
     uint32_t numMeshes = GetNumMeshes();
-    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineMeshOffsetsIndirectCS)->pipeline);
-
     MeshOffsetsPushConstants meshOffsetsPushConstants = 
     {
         .indirectAddress = indirectDataAddress,
         .numMeshes = numMeshes
     };
-
     vkCmdPushConstants(cmd, GetPipeline(pipelineMeshOffsetsIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(MeshOffsetsPushConstants), &meshOffsetsPushConstants);
     vkCmdDispatch(cmd, 1, 1, 1);
 
-    // Calculate Renderable Indices
-    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+}
+void GfxRenderPassRenderableIndices(VkCommandBuffer cmd, RGRenderPass *pRenderPass)
+{
+    VkDeviceAddress indirectDataAddress = GetBufferDeviceAddress(indirectDataBuffer, frameIndex);
+    VkDeviceAddress renderableDataAddress = GetBufferDeviceAddress(renderableDataBuffer, frameIndex);
+    VkDeviceAddress renderableIndexAddress = GetBufferDeviceAddress(renderableIndexBuffer, frameIndex);
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, GetPipeline(pipelineIndicesIndirectCS)->pipeline);
     CalculateIndicesPushConstants calculateIndicesPushConstants =
     {
         .indirectAddress = indirectDataAddress,
         .renderableDataAddress = renderableDataAddress,
         .renderableIndexAddress = renderableIndexAddress,
-        .numRenderables = scene->numRenderables
+        .numRenderables = pCurrentScene->numRenderables
     };
     vkCmdPushConstants(cmd, GetPipeline(pipelineIndicesIndirectCS)->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(CalculateIndicesPushConstants), &calculateIndicesPushConstants);
-    vkCmdDispatch(cmd, (scene->numRenderables + 63) / 64, 1, 1);
-    vkCmdPipelineBarrier2(cmd, &dependencyInfo);
-    VK_CHECK(vkEndCommandBuffer(cmd));
-    VkQueue queue = GfxGetQueue();
-    VkSubmitInfo submitInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &cmd};
-    VkFence fence;
-    VkFenceCreateInfo fenceCreateInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-    };
-    vkCreateFence(device, &fenceCreateInfo, nullptr, &fence);
-    vkQueueSubmit(queue, 1, &submitInfo, fence);
-    vkWaitForFences(device, 1, &fence, true, UINT64_MAX);
+    vkCmdDispatch(cmd, (pCurrentScene->numRenderables + 63) / 64, 1, 1);
 }
+
+void GfxCreateIndirectRenderGraph()
+{
+    RGRenderGraph renderGraph = {};
+    indirectRenderGraph = {};
+
+    RGRenderPass clearPass = {};
+    clearPass.name = "Clear Pass";
+    clearPass.numDependencies = 0;
+    clearPass.function = GfxRenderPassClearIndirect;
+    RGRenderPassID clearPassID = RGAddRenderPass(renderGraph, clearPass);
+
+    RGRenderPass incrementIndirectPass = {};
+    incrementIndirectPass.name = "Increment Indirect Pass";
+    incrementIndirectPass.numDependencies = 1;
+    incrementIndirectPass.pDependencies[0] = clearPassID;
+    incrementIndirectPass.function = GfxRenderPassIncrementIndirect;
+    RGRenderPassID incrementIndirectID = RGAddRenderPass(renderGraph, incrementIndirectPass);
+
+    RGRenderPass meshOffsetsPass = {};
+    meshOffsetsPass.name = "Mesh Offsets Pass";
+    meshOffsetsPass.numDependencies = 1;
+    meshOffsetsPass.pDependencies[0] = incrementIndirectID;
+    meshOffsetsPass.function = GfxRenderPassMeshOffsets;
+    RGRenderPassID meshOffsetsID = RGAddRenderPass(renderGraph, meshOffsetsPass);
+
+    RGRenderPass renderableIndicesPass = {};
+    renderableIndicesPass.name = "Renderable Indices Pass";
+    renderableIndicesPass.numDependencies = 1;
+    renderableIndicesPass.pDependencies[0] = meshOffsetsID;
+    renderableIndicesPass.function = GfxRenderPassRenderableIndices;
+    RGAddRenderPass(renderGraph, renderableIndicesPass);
+
+    RGCompileRenderGraph(renderGraph, indirectRenderGraph);
+}
+void GfxExecuteIndirectRenderGraph(VkCommandBuffer cmd)
+{
+    RGExecuteCompiledRenderGraph(&indirectRenderGraph, cmd);
+}
+
 
 void GfxSelectDevice()
 {
@@ -2105,6 +2050,7 @@ void GfxInit()
 
     GfxCreateBindlessDesc();
     GfxCreateComputePipelines();
+    GfxCreateIndirectRenderGraph();
 }
 
 
@@ -2196,7 +2142,6 @@ void GfxRenderScene(VkCommandBuffer &cmd
 #ifdef USE_OPENXR
     , uint32_t viewID
 #endif
-
 )
 {
 #ifdef USE_OPENXR
@@ -2253,6 +2198,7 @@ int GfxRender()
     #ifdef USE_OPENXR
         return GfxRenderXR();
     #endif
+    memcpy(GetBufferMappedAddress(indirectDataBuffer, frameIndex), &meshRegistry, GetNumMeshes() * sizeof(Mesh));
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAcquiredSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
     VkCommandBuffer cmd = commandBuffers[frameIndex];
     VkCommandBufferBeginInfo beginInfo =
@@ -2260,6 +2206,8 @@ int GfxRender()
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     VK_CHECK(vkBeginCommandBuffer(cmd, &beginInfo));
+
+    GfxExecuteIndirectRenderGraph(cmd);
 
     VkImageMemoryBarrier2 outputBarriers[] =
         {
@@ -2506,12 +2454,6 @@ void GfxCreateBindlessDesc()
             .descriptorSetCount = 1,
             .pSetLayouts = &descriptorSetLayoutTex};
     VK_CHECK(vkAllocateDescriptorSets(device, &texDescSetAllocInfo, &descriptorSetTex));
-
-    // Renderable Data/Indices Descriptor Set and Layout
-    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-    {
-        // ...
-    }
 }
 
 VkCommandBuffer GfxCreateOneTimeCmdBuffer()

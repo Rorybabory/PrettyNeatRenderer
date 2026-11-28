@@ -116,7 +116,7 @@ struct GlobalData
 {
     glm::mat4 proj;
     glm::mat4 view;
-    glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
+    glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 1.0f};
     glm::vec4 frustumPlanes[6];
     glm::vec4 cameraPos{0.0f, 0.0f, 0.0f, 1.0f};
 };

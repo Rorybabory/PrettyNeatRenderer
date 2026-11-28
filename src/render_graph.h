@@ -90,6 +90,6 @@ RGRenderPassID RGAddRenderPass(RGRenderGraph &renderGraph, RGRenderPass &renderP
 void RGCompileRenderGraph(RGRenderGraph &renderGraph, RGCompiledRenderGraph &compiledRenderGraph);
 void RGDebugCompiledRenderGraph(RGCompiledRenderGraph &compiledRenderGraph);
 
-void RGExecuteCompiledRenderGraph(VkCommandBuffer cmd);
+void RGExecuteCompiledRenderGraph(RGCompiledRenderGraph * compiledRenderGraph, VkCommandBuffer cmd);
 
 void RGTestRenderGraph();

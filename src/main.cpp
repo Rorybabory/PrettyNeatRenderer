@@ -245,9 +245,7 @@ int main()
         #endif
         GfxWaitForFrame();
         GfxSetCameraData(cameraView, mCamera.pos, 80.0f, 0.002f, 64.0f, updateFrustum);
-        #ifndef USE_OPENXR
-        GfxSortRenderables(&scene);
-        #endif
+
         GfxRender();
     }
     GfxPreDestroy();

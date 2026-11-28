@@ -97,6 +97,30 @@ void RGCompileRenderGraph(RGRenderGraph &renderGraph, RGCompiledRenderGraph &com
     }
 }
 
+void RGExecuteCompiledRenderGraph(RGCompiledRenderGraph * compiledRenderGraph, VkCommandBuffer cmd)
+{
+    for (uint32_t i = 0; i < compiledRenderGraph->numSteps; ++i)
+    {
+        compiledRenderGraph->steps[i].renderPass.function(cmd, &compiledRenderGraph->steps[i].renderPass);
+
+        //Literally the worst most inefficient possible barrier that you can do, however this is just to test functionality. 
+        VkMemoryBarrier2 memoryBarrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+        };
+
+        VkDependencyInfo dependencyInfo{
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &memoryBarrier,
+        };
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+    }
+}
+
 void RGDebugCompiledRenderGraph(RGCompiledRenderGraph &compiledRenderGraph)
 {
     spdlog::info("------------------------------ Begin Debugging Render Graph ------------------------------");

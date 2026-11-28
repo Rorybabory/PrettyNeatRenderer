@@ -48,7 +48,7 @@ VSOutput main(VSInput input, uniform MatGenericPushConstants pushConstants, uint
     output.Factor = 1.0f;
     // Calculate view vectors required for lighting
     float4 fragPos = mul(pushConstants.globalData->view, worldPos);
-    float4 lightViewPos = mul(pushConstants.globalData->view, pushConstants.globalData->lightPos);
+    float4 lightViewPos = mul(pushConstants.globalData->view, float4(pushConstants.globalData->lightPos.xyz, 1.0f));
     output.LightVec = lightViewPos.xyz - fragPos.xyz;
     output.ViewVec = -fragPos.xyz;
     output.textureID = renderData.textureIDs_0_3.x; 
